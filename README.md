@@ -75,6 +75,29 @@ KaraokeZero is structured into three dedicated modular components:
 
 ---
 
+## 🚀 Quick Start & Deployment
+
+To transform a fresh **Raspberry Pi OS Lite (32-bit Bullseye)** installation into the KaraokeZero appliance:
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/irlemos/karaoke-zero.git /tmp/karaoke-zero
+
+# 2. Run the automated provisioning script
+cd /tmp/karaoke-zero/module_3_installer_script
+sudo bash install.sh
+
+# 3. Reboot the Raspberry Pi to apply GPU and firmware tuning
+sudo reboot
+```
+
+The interactive installer guides you through:
+1. Reviewing the **MicroSD flash wear warning** and selecting your external USB drive/SSD (`/mnt/external_hd/karaoke`).
+2. Registering your initial fallback Wi-Fi network (Admin Mobile Hotspot with Priority 100).
+3. Automatically installing all dependencies, official `yt-dlp`, upstream PiKaraoke in a virtualenv, and enabling the systemd service mesh.
+
+---
+
 ## 📋 Software Stack
 
 | Layer | Component | Description |
