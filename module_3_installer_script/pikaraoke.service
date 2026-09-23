@@ -1,0 +1,25 @@
+[Unit]
+Description=PiKaraoke Core Headless Background Service
+After=network.target NetworkManager.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/pikaraoke
+ExecStart=/opt/pikaraoke/venv/bin/python app.py \
+    --headless \
+    --download-on-queue \
+    --port 5555 \
+    --path /mnt/external_hd/karaoke/songs \
+    --data-dir /mnt/external_hd/karaoke/data
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+# Memory & Process isolation
+KillMode=mixed
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
