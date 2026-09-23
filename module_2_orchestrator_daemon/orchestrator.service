@@ -1,0 +1,24 @@
+[Unit]
+Description=KaraokeZero Module 2 Display & Queue Orchestrator Daemon
+After=network.target NetworkManager.service pikaraoke.service
+Wants=pikaraoke.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/karaokezero/module_2_orchestrator_daemon
+ExecStart=/usr/bin/python3 /opt/karaokezero/module_2_orchestrator_daemon/orchestrator.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=PIKARAOKE_URL=http://127.0.0.1:5555
+Environment=VLC_VOUT=mmal_vout
+Environment=VLC_AOUT=alsa
+Environment=ALSA_DEVICE=default
+
+# Embedded hardware resource protection (RPi Zero W)
+CPUQuota=25%
+MemoryMax=64M
+
+[Install]
+WantedBy=multi-user.target
