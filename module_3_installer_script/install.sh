@@ -283,25 +283,12 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
     chmod a+rx /usr/local/bin/yt-dlp
 
-    # Enable and start NetworkManager service, disabling conflicting legacy dhcpcd
-    log_info "Activating NetworkManager service..."
+    # Enable NetworkManager and disable dhcpcd for the next boot without disrupting current live connection
+    log_info "Configuring network stack for next boot (preserving active connection)..."
     if command -v systemctl >/dev/null 2>&1; then
-        if systemctl is-active --quiet dhcpcd 2>/dev/null; then
-            log_info "Disabling conflicting legacy dhcpcd in favor of NetworkManager..."
-            systemctl stop dhcpcd 2>/dev/null || true
-            systemctl disable dhcpcd 2>/dev/null || true
-        fi
         systemctl unmask NetworkManager.service 2>/dev/null || true
         systemctl enable NetworkManager.service 2>/dev/null || true
-        systemctl start NetworkManager.service 2>/dev/null || true
-
-        # Allow NetworkManager daemon to initialize its D-Bus interface
-        for _ in {1..5}; do
-            if nmcli general status >/dev/null 2>&1; then
-                break
-            fi
-            sleep 1
-        done
+        systemctl disable dhcpcd 2>/dev/null || true
     fi
 fi
 
@@ -383,39 +370,15 @@ if [[ "${SUPPRESS_FB_CURSOR}" == "true" && "${DRY_RUN}" != "true" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 9. Fallback Network Provisioning (NetworkManager)
+# 9. Fallback & Active Network Provisioning (NetworkManager Keyfiles)
 # ------------------------------------------------------------------------------
-if [[ -n "${ADMIN_WIFI_SSID}" && "${DRY_RUN}" != "true" ]]; then
-    log_info "Configuring fallback Wi-Fi network '${ADMIN_WIFI_SSID}' (Priority 100)..."
+if [[ "${DRY_RUN}" != "true" ]]; then
+    NM_DIR="/etc/NetworkManager/system-connections"
+    mkdir -p "${NM_DIR}"
 
-    NM_PROVISIONED=false
-
-    # Try nmcli first if NetworkManager daemon is active and responsive
-    if command -v nmcli >/dev/null 2>&1 && nmcli general status >/dev/null 2>&1; then
-        nmcli connection delete "${ADMIN_WIFI_SSID}" >/dev/null 2>&1 || true
-        if nmcli connection add \
-            type wifi \
-            con-name "${ADMIN_WIFI_SSID}" \
-            ifname wlan0 \
-            ssid "${ADMIN_WIFI_SSID}" \
-            connection.autoconnect yes \
-            connection.autoconnect-priority 100 >/dev/null 2>&1; then
-
-            if [[ -n "${ADMIN_WIFI_PASSWORD}" ]]; then
-                nmcli connection modify "${ADMIN_WIFI_SSID}" \
-                    wifi-sec.key-mgmt wpa-psk \
-                    wifi-sec.psk "${ADMIN_WIFI_PASSWORD}" >/dev/null 2>&1 || true
-            fi
-            NM_PROVISIONED=true
-            log_success "Saved NetworkManager connection '${ADMIN_WIFI_SSID}' via nmcli."
-        fi
-    fi
-
-    # Fallback: Write the native NetworkManager keyfile directly to disk
-    if [[ "${NM_PROVISIONED}" != "true" ]]; then
-        log_info "Writing NetworkManager keyfile directly to /etc/NetworkManager/system-connections/..."
-        NM_DIR="/etc/NetworkManager/system-connections"
-        mkdir -p "${NM_DIR}"
+    # 9.1 Provision Fallback Admin Hotspot (Priority 100)
+    if [[ -n "${ADMIN_WIFI_SSID}" ]]; then
+        log_info "Provisioning fallback Wi-Fi network '${ADMIN_WIFI_SSID}' (Priority 100)..."
         NM_FILE="${NM_DIR}/${ADMIN_WIFI_SSID}.nmconnection"
         UUID_VAL=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "c3d1f456-789a-4bc1-9def-0123456789ab")
 
@@ -451,10 +414,54 @@ method=auto
 EOF
         chmod 600 "${NM_FILE}"
         chown root:root "${NM_FILE}" 2>/dev/null || true
-        log_success "Saved NetworkManager profile to '${NM_FILE}'."
+        log_success "Saved NetworkManager profile for '${ADMIN_WIFI_SSID}' (Priority 100)."
+    fi
 
-        # Trigger connection reload if nmcli is available
-        nmcli connection reload >/dev/null 2>&1 || true
+    # 9.2 Migrate existing active Wi-Fi from wpa_supplicant as Venue/Home network (Priority 50)
+    WPA_CONF="/etc/wpa_supplicant/wpa_supplicant.conf"
+    if [[ -f "${WPA_CONF}" ]]; then
+        EXISTING_SSID=$(grep -E '^\s*ssid=' "${WPA_CONF}" 2>/dev/null | head -n 1 | cut -d'"' -f2 || true)
+        EXISTING_PSK=$(grep -E '^\s*psk=' "${WPA_CONF}" 2>/dev/null | head -n 1 | cut -d'"' -f2 || true)
+
+        if [[ -n "${EXISTING_SSID}" && "${EXISTING_SSID}" != "${ADMIN_WIFI_SSID:-}" ]]; then
+            log_info "Migrating current active Wi-Fi '${EXISTING_SSID}' to NetworkManager (Priority 50)..."
+            EXISTING_FILE="${NM_DIR}/${EXISTING_SSID}.nmconnection"
+            EXISTING_UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "e4f5a678-90ab-4cde-8123-456789abcdef")
+
+            cat << EOF > "${EXISTING_FILE}"
+[connection]
+id=${EXISTING_SSID}
+uuid=${EXISTING_UUID}
+type=wifi
+interface-name=wlan0
+autoconnect=true
+autoconnect-priority=50
+
+[wifi]
+mode=infrastructure
+ssid=${EXISTING_SSID}
+
+EOF
+            if [[ -n "${EXISTING_PSK}" ]]; then
+                cat << EOF >> "${EXISTING_FILE}"
+[wifi-security]
+key-mgmt=wpa-psk
+psk=${EXISTING_PSK}
+
+EOF
+            fi
+
+            cat << EOF >> "${EXISTING_FILE}"
+[ipv4]
+method=auto
+
+[ipv6]
+method=auto
+EOF
+            chmod 600 "${EXISTING_FILE}"
+            chown root:root "${EXISTING_FILE}" 2>/dev/null || true
+            log_success "Saved NetworkManager profile for current network '${EXISTING_SSID}' (Priority 50)."
+        fi
     fi
 fi
 
@@ -498,15 +505,8 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-
-    if [[ "${ENABLE_SERVICES_NOW}" == "true" ]]; then
-        log_info "Enabling and starting KaraokeZero services..."
-        systemctl enable wifi_manager.service pikaraoke.service orchestrator.service
-        systemctl restart wifi_manager.service pikaraoke.service orchestrator.service || true
-    else
-        log_info "Enabling services for auto-start on boot..."
-        systemctl enable wifi_manager.service pikaraoke.service orchestrator.service
-    fi
+    log_info "Enabling KaraokeZero services for auto-start on boot..."
+    systemctl enable wifi_manager.service pikaraoke.service orchestrator.service
 fi
 
 echo ""
