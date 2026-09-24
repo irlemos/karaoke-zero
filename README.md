@@ -16,7 +16,7 @@ Instead of forking [PiKaraoke](https://github.com/vicwomg/pikaraoke), KaraokeZer
 
 - **Absolute Minimum Resource Consumption:** No X11/Wayland desktop environments and no local Chromium/browser instances on the Raspberry Pi.
 - **Zero Audio Latency & Zero CPU Overhead:** Microphone processing completely bypasses the Pi's software audio stack via an external multichannel analog mixer.
-- **Hardware-Accelerated Video:** Video playback is rendered directly to the framebuffer via VLC's CLI (`cvlc`) utilizing GPU hardware decoding (`mmal_vout`).
+- **Hardware-Accelerated Video:** Video playback is rendered directly to the screen via VLC's CLI (`cvlc`) utilizing KMS/DRM hardware acceleration (`--vout drm`).
 - **SD Card Longevity (Wear Leveling Protection):** All write-heavy operations (SQLite database, yt-dlp download buffers, song storage) are routed to an external USB hard drive mounted at `/mnt/external_hd/karaoke`.
 
 ---
@@ -66,7 +66,7 @@ KaraokeZero is structured into three dedicated modular components:
 ### 2. `module_2_orchestrator_daemon` (Display & Queue Engine)
 - Background daemon that polls the local PiKaraoke API (`/api/queue`).
 - **Idle State:** Renders a looping background video overlaying a dynamically generated QR code (`qrencode`) directly on the screen pointing to the mobile web app (`http://<ip>:5555`).
-- **Playing State:** Seamlessly switches to full-screen hardware-accelerated playback of the active song via `cvlc --vout mmal_vout`.
+- **Playing State:** Seamlessly switches to full-screen hardware-accelerated playback of the active song via `cvlc --vout drm`.
 - Kills playback processes between tracks to prevent memory leaks and releases video buffers.
 
 ### 3. `module_3_installer_script` (One-Click Deployment)
@@ -77,7 +77,7 @@ KaraokeZero is structured into three dedicated modular components:
 
 ## 🚀 Quick Start & Deployment
 
-To transform a fresh **Raspberry Pi OS Lite (32-bit Bullseye)** installation into the KaraokeZero appliance:
+To transform a fresh **Raspberry Pi OS Lite (32-bit Bookworm or newer)** installation into the KaraokeZero appliance:
 
 ### 1. Bootstrap Prerequisites
 Clean minimal installations of Raspberry Pi OS Lite do not ship with `git` or `curl`. Install them first:
@@ -112,10 +112,10 @@ The interactive installer automatically:
 
 | Layer | Component | Description |
 | :--- | :--- | :--- |
-| **Operating System** | Raspberry Pi OS Lite | 32-bit Bullseye (Legacy, headless, no desktop environment) |
+| **Operating System** | Raspberry Pi OS Lite | 32-bit Bookworm or newer (headless, no desktop environment, Python 3.11+) |
 | **Networking** | NetworkManager (`nmcli`) | Prioritized multi-profile connection management |
 | **Karaoke Core** | [PiKaraoke](https://github.com/vicwomg/pikaraoke) | Headless daemon (`--headless --download-path`) |
-| **Media Player** | VLC CLI (`cvlc`) | Direct framebuffer rendering (`mmal_vout`) |
+| **Media Player** | VLC CLI (`cvlc`) | Direct Rendering Manager / KMS (`--vout drm`) |
 | **Display Tools** | `qrencode` | Generates mobile-access QR code on the fly |
 
 ---

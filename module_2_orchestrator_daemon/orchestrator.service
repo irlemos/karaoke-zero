@@ -12,7 +12,7 @@ Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 Environment=PIKARAOKE_URL=http://127.0.0.1:5555
-Environment=VLC_VOUT=mmal_vout
+Environment=VLC_VOUT=drm
 Environment=VLC_AOUT=alsa
 Environment=ALSA_DEVICE=default
 

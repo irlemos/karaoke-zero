@@ -1,6 +1,6 @@
 # KaraokeZero - Module 2: Display & Queue Orchestrator Daemon
 
-The **Orchestrator Daemon** is the display and playback management engine for KaraokeZero, specifically engineered for resource-constrained, single-core embedded devices like the **Raspberry Pi Zero W** (512MB RAM, ARMv6) running **Raspberry Pi OS Lite** (32-bit Bullseye, headless).
+The **Orchestrator Daemon** is the display and playback management engine for KaraokeZero, specifically engineered for resource-constrained, single-core embedded devices like the **Raspberry Pi Zero W** (512MB RAM, ARMv6) running **Raspberry Pi OS Lite** (32-bit Bookworm or newer, headless).
 
 ---
 
@@ -11,7 +11,7 @@ Upstream PiKaraoke utilizes a web-based splash screen (`/splash`) that requires 
 - Running headless OS Lite means no X11 or Wayland display server is available.
 
 **The Solution:**
-Module 2 acts as a **Zero-GUI Hardware-Accelerated Display Client**. It monitors the PiKaraoke queue directly over local REST/WebSocket APIs and orchestrates video rendering straight to the Linux framebuffer using **VLC CLI (`cvlc`)** with Broadcom VideoCore IV hardware acceleration (`--vout mmal_vout`).
+Module 2 acts as a **Zero-GUI Hardware-Accelerated Display Client**. It monitors the PiKaraoke queue directly over local REST/WebSocket APIs and orchestrates video rendering straight to the display using **VLC CLI (`cvlc`)** with Direct Rendering Manager / Kernel Mode Setting hardware acceleration (`--vout drm`).
 
 ---
 
@@ -46,7 +46,7 @@ Module 2 acts as a **Zero-GUI Hardware-Accelerated Display Client**. It monitors
                                                             (Zero Lag)
 ```
 
-1. **Video Decoding:** Direct framebuffer rendering via MMAL GPU hardware block (`mmal_vout`), bypassing X11/Wayland completely.
+1. **Video Decoding:** Direct rendering via Direct Rendering Manager / KMS (`--vout drm`), bypassing X11/Wayland completely.
 2. **Audio Decoding:** Analog stereo sound extracted natively through the Mini-HDMI to VGA adapter's 3.5mm P2 jack, routed straight into the external analog mixer.
 3. **Microphones:** Connected directly to the external mixer, completely isolated from software processing to guarantee **zero vocal latency**.
 
@@ -85,7 +85,7 @@ Module 2 acts as a **Zero-GUI Hardware-Accelerated Display Client**. It monitors
 |                                 v
 |      +-------------------------------------------------------+
 |      |                     PLAYING_STATE                     |
-|      |  - Spawns cvlc with --vout mmal_vout --play-and-exit  |
+|      |  - Spawns cvlc with --vout drm --play-and-exit        |
 |      |  - Emits start_song to PiKaraoke                      |
 |      |  - Syncs pause/resume state with mobile clients       |
 |      +-------------------------------------------------------+
@@ -143,7 +143,7 @@ python3 orchestrator.py --pikaraoke-url http://127.0.0.1:5555 --interface wlan0
 | `--interface` | `NET_INTERFACE` | `wlan0` | Network interface to query for IP address. |
 | `--port` | `PORT` | `5555` | PiKaraoke web port encoded into the QR code. |
 | `--bg-video` | `BG_VIDEO` | `assets/idle_loop.mp4` | Path to custom idle background video file. |
-| `--vout` | `VLC_VOUT` | `mmal_vout` | VLC video output engine (`mmal_vout` for RPi Bullseye). |
+| `--vout` | `VLC_VOUT` | `drm` | VLC video output engine (`drm` for RPi Bookworm DRM/KMS). |
 | `--aout` | `VLC_AOUT` | `alsa` | VLC audio output plugin (`alsa`). |
 | `--alsa-device` | `ALSA_DEVICE` | `default` | ALSA audio device name. |
 | `--poll-interval` | `POLL_INTERVAL` | `1.0` | Status poll frequency in seconds. |

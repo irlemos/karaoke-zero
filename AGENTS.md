@@ -12,7 +12,7 @@
 ## 2. Target Platform & Hardware Constraints
 - **Primary Hardware:** Raspberry Pi Zero W (ARMv6, single-core 1.0 GHz, 512MB RAM).
 - **Secondary Targets:** Raspberry Pi 3 / 4 / 5.
-- **Operating System:** Raspberry Pi OS Lite (32-bit Bullseye, headless).
+- **Operating System:** Raspberry Pi OS Lite (32-bit Bookworm or newer, headless).
 - **Zero GUI Overhead:** No X11, Wayland, or desktop managers. No local Chromium or web browser running on the device.
 - **Memory Footprint:** Keep custom daemons and services under 25MB RAM whenever possible.
 - **SD Card Protection:** Write-heavy storage (SQLite database, video buffers, downloads) must be routed to the external drive mounted at `/mnt/external_hd/karaoke`.

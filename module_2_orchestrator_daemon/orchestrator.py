@@ -43,7 +43,7 @@ class OrchestratorDaemon:
         interface: str = "wlan0",
         port: int = 5555,
         bg_video_path: Optional[str] = None,
-        vout: str = "mmal_vout",
+        vout: str = "drm",
         aout: str = "alsa",
         alsa_device: str = "default",
         qr_output: str = "/tmp/qrcode.png",
@@ -269,8 +269,8 @@ def parse_arguments():
     )
     parser.add_argument(
         "--vout",
-        default=os.environ.get("VLC_VOUT", "mmal_vout"),
-        help="VLC video output module (default: mmal_vout for RPi Bullseye)"
+        default=os.environ.get("VLC_VOUT", "drm"),
+        help="VLC video output module (default: drm for RPi Bookworm DRM/KMS)"
     )
     parser.add_argument(
         "--aout",

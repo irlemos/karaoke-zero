@@ -20,12 +20,12 @@ logger = logging.getLogger("Orchestrator.DisplayManager")
 
 class DisplayManager:
     """
-    Subprocess manager for cvlc hardware-accelerated playback directly on the framebuffer.
+    Subprocess manager for cvlc hardware-accelerated playback directly on DRM/KMS.
     """
 
     def __init__(
         self,
-        vout: str = "mmal_vout",
+        vout: str = "drm",
         aout: str = "alsa",
         alsa_device: str = "default",
         rc_socket_path: str = "/tmp/vlc_rc.sock",

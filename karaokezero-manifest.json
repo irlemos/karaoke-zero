@@ -1,48 +1,48 @@
 {
   "project_metadata": {
     "name": "KaraokeZero",
-    "version": "1.0.0",
-    "last_updated": "2026-09-22",
+    "version": "2.0.0",
+    "last_updated": "2026",
     "status": "Active Development",
     "tagline": "The Headless, Ultra-Low Resource PiKaraoke Appliance",
-    "repository_strategy": "Independent Wrapper/Appliance (Downloads and configures the official PiKaraoke upstream, without forking it)",
-    "core_philosophy": "Ultra-low resource consumption, headless operation, zero GUI overhead, zero audio latency, and maximum hardware acceleration.",
+    "repository_strategy": "Independent Wrapper/Appliance (Downloads and configures the latest upstream PiKaraoke version)",
+    "core_philosophy": "Ultra-low resource consumption, headless operation, zero GUI overhead, zero audio latency, and KMS/DRM hardware acceleration.",
     "target_hardware": "Any Raspberry Pi (Highly optimized for low-spec models like Raspberry Pi Zero W / RPi 3)"
   },
   "hardware_topology": {
     "processing_unit": "Raspberry Pi Zero W (Booting OS from SD Card)",
     "storage": {
-      "sd_card_internal": "Dedicated strictly to OS, application configs, and lightweight scripts (Wear Leveling Protection: HIGH).",
+      "sd_card_internal": "Dedicated strictly to OS, Python 3.11+ environments, application configs, and scripts (Wear Leveling Protection: HIGH).",
       "hard_drive_external": "USB HDD mounted via fstab to '/mnt/external_hd/karaoke'. Dedicated to local media library, persistent DB SQLite, and yt-dlp download buffer."
     },
     "video_output": "Mini-HDMI to VGA Adapter connected to a USB-powered LED Monitor.",
     "audio_routing": {
       "strategy": "Zero CPU Overhead & Zero Mic Latency",
-      "extraction": "Audio extracted via the P2 (3.5mm) analog output native to the HDMI-to-VGA adapter, leveraging GPU audio passthrough.",
+      "extraction": "Audio extracted via the P2 (3.5mm) analog output native to the HDMI-to-VGA adapter.",
       "mixing": "Direct physical connection from the adapter's P2 port to an external Multichannel Audio Mixer (e.g., 4-channel analog mixer).",
-      "microphones": "Connected directly to the external analog mixer. Bypasses the Raspberry Pi completely to guarantee zero software delay."
+      "microphones": "Connected directly to the external analog mixer to guarantee zero software delay."
     }
   },
   "software_stack": {
-    "operating_system": "Raspberry Pi OS Lite (Legacy 32-bit Bullseye - Headless, No X11/Wayland Desktop Environment)",
-    "network_management": "NetworkManager (nmcli)",
+    "operating_system": "Raspberry Pi OS Lite (Bookworm 32-bit - Headless, No X11/Wayland Desktop Environment)",
+    "network_management": "NetworkManager (nmcli - Native to Bookworm)",
     "karaoke_core_service": {
       "binary": "pikaraoke",
-      "execution_mode": "Strictly background daemon",
+      "execution_mode": "Strictly background daemon running under Python 3.11+",
       "startup_flags": [
         "--headless",
-        "--port 5555",
-        "--download-path /mnt/external_hd/karaoke/songs",
-        "--config-file-path /mnt/external_hd/karaoke/data/config.ini"
+        "--download-on-queue",
+        "--path /mnt/external_hd/karaoke/songs",
+        "--data-dir /mnt/external_hd/karaoke/data"
       ]
     },
     "media_player": "VLC Media Player (CLI via cvlc wrapper)",
-    "video_rendering_engine": "Direct framebuffer / Hardware Acceleration (mmal_vout for Legacy Bullseye OS)"
+    "video_rendering_engine": "Direct Rendering Manager (KMS/DRM) / Hardware Acceleration via V4L2"
   },
   "custom_modules_to_build": {
     "module_1_wifi_manager": {
       "purpose": "Dynamic and lightweight captive-style portal for network selection without a monitor.",
-      "tech_stack": "Python, Flask, NetworkManager CLI (nmcli)",
+      "tech_stack": "Python 3, Flask, NetworkManager CLI (nmcli)",
       "logic_flow": [
         "1. NetworkManager is pre-configured to prioritize the Admin's Mobile Hotspot (Priority 100).",
         "2. If no known venue WiFi is found, Pi connects to the Admin Hotspot.",
@@ -53,29 +53,29 @@
       ]
     },
     "module_2_orchestrator_daemon": {
-      "purpose": "Background service to monitor PiKaraoke state and manage the physical display seamlessly without X11.",
+      "purpose": "Background service to monitor PiKaraoke state and manage the physical display seamlessly via DRM.",
       "tech_stack": "Python (requests) or Bash, qrencode, cvlc",
       "logic_flow": [
         "1. On boot, detect active IP (wlan0). Use 'qrencode' to generate a QR Code (http://<ip>:5555) and save to '/tmp/qrcode.png'.",
         "2. Enter infinite loop polling PiKaraoke API ('http://127.0.0.1:5555/api/queue') every 1-2 seconds.",
-        "3. IDLE STATE ('is_playing' == false): Ensure no music cvlc is running. Spawn 'cvlc' playing a local looping background video. Use VLC logo filter ('--sub-source logo --logo-file /tmp/qrcode.png --logo-position 9') to overlay the QR Code directly onto the framebuffer.",
-        "4. PLAYING STATE ('is_playing' == true): Kill the idle video instance. Spawn a new 'cvlc' instance rendering the requested track (local or downloaded) via hardware acceleration ('--fullscreen --no-osd --vout mmal_vout').",
+        "3. IDLE STATE ('is_playing' == false): Spawn 'cvlc' playing a local looping background video. Use VLC logo filter ('--sub-source logo --logo-file /tmp/qrcode.png --logo-position 9') to overlay the QR Code directly onto the DRM framebuffer. Command includes: '--vout drm'.",
+        "4. PLAYING STATE ('is_playing' == true): Kill the idle video instance. Spawn a new 'cvlc' instance rendering the requested track via hardware acceleration ('--fullscreen --no-osd --vout drm').",
         "5. Track ends -> VLC auto-closes -> Daemon detects 'is_playing' == false -> Re-spawns IDLE STATE."
       ]
     },
     "module_3_installer_script": {
-      "purpose": "Automated 'One-Click' deployment script to transform a fresh OS into the KaraokeZero Appliance.",
+      "purpose": "Automated 'One-Click' deployment script to transform a fresh Bookworm OS into the KaraokeZero Appliance.",
       "actions": [
         "Install dependencies: vlc, python3-flask, network-manager, qrencode, yt-dlp.",
         "Configure /etc/fstab for external HD mounting.",
-        "Clone official PiKaraoke repository from vicwomg/pikaraoke.",
-        "Create and enable systemd services (wifi_manager.service, orchestrator.service, pikaraoke.service) to auto-start on boot."
+        "Clone official upstream PiKaraoke repository from vicwomg/pikaraoke (always latest master).",
+        "Create and enable systemd services (wifi_manager.service, orchestrator.service, pikaraoke.service)."
       ]
     }
   },
   "performance_and_stability_guarantees": {
     "ram_management": "VLC processes are killed between tracks, preventing memory leaks. No Chromium/browsers exist on the Pi.",
-    "cpu_management": "Audio is handled by GPU (HDMI passthrough). Video decoded by GPU hardware block. yt-dlp isolated to external HDD I/O.",
+    "cpu_management": "DRM handles video decoding in hardware. Audio extracted natively via HDMI passthrough.",
     "sd_card_protection": "All heavy read/write operations (SQLite, downloads, media buffering) are forcefully routed to the external HDD."
   }
 }

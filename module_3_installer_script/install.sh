@@ -2,8 +2,8 @@
 # ==============================================================================
 # KaraokeZero - Module 3: Master Installer & Provisioning Engine
 # ==============================================================================
-# Transforms a clean Raspberry Pi OS Lite (32-bit Bullseye) into an ultra-low
-# resource, zero-GUI headless KaraokeZero appliance.
+# Transforms a clean Raspberry Pi OS Lite (32-bit Bookworm or newer) into an
+# ultra-low resource, zero-GUI headless KaraokeZero appliance.
 # ==============================================================================
 
 set -euo pipefail
@@ -323,21 +323,24 @@ if [[ "${DRY_RUN}" != "true" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 6. Upstream PiKaraoke Deployment
+# 6. Upstream PiKaraoke Deployment (Always Latest Master)
 # ------------------------------------------------------------------------------
-log_info "Deploying official upstream PiKaraoke..."
+log_info "Deploying official upstream PiKaraoke (latest master branch)..."
 
 if [[ "${DRY_RUN}" != "true" ]]; then
     mkdir -p "$(dirname "${PIKARAOKE_INSTALL_DIR}")"
     if [[ -d "${PIKARAOKE_INSTALL_DIR}/.git" ]]; then
-        log_info "Updating existing PiKaraoke clone..."
-        git -C "${PIKARAOKE_INSTALL_DIR}" pull origin "${PIKARAOKE_BRANCH}" || true
+        log_info "Updating existing PiKaraoke clone to latest master..."
+        git -C "${PIKARAOKE_INSTALL_DIR}" remote set-url origin "${PIKARAOKE_REPO_URL}" 2>/dev/null || true
+        git -C "${PIKARAOKE_INSTALL_DIR}" fetch origin master
+        git -C "${PIKARAOKE_INSTALL_DIR}" checkout master
+        git -C "${PIKARAOKE_INSTALL_DIR}" pull --ff-only origin master || true
     else
-        log_info "Cloning PiKaraoke (${PIKARAOKE_BRANCH}) to ${PIKARAOKE_INSTALL_DIR}..."
-        git clone --depth 1 -b "${PIKARAOKE_BRANCH}" "${PIKARAOKE_REPO_URL}" "${PIKARAOKE_INSTALL_DIR}"
+        log_info "Cloning latest PiKaraoke (master branch) to ${PIKARAOKE_INSTALL_DIR}..."
+        git clone --depth 1 -b master "${PIKARAOKE_REPO_URL}" "${PIKARAOKE_INSTALL_DIR}"
     fi
 
-    # Create isolated Python virtualenv (PEP 668 compliant)
+    # Create isolated Python virtualenv (PEP 668 compliant, native Python 3.11+ on Bookworm)
     if [[ ! -d "${PIKARAOKE_INSTALL_DIR}/venv" ]]; then
         log_info "Creating Python virtual environment in ${PIKARAOKE_INSTALL_DIR}/venv..."
         python3 -m venv "${PIKARAOKE_INSTALL_DIR}/venv"
@@ -366,16 +369,17 @@ if [[ "${DRY_RUN}" != "true" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 8. Firmware & Hardware Tuning (/boot/config.txt & /boot/cmdline.txt)
+# 8. Firmware & Hardware Tuning (/boot/firmware/config.txt & /boot/firmware/cmdline.txt)
 # ------------------------------------------------------------------------------
 if [[ "${CONFIGURE_BOOT_CONFIG}" == "true" && "${DRY_RUN}" != "true" ]]; then
-    BOOT_CONFIG="/boot/config.txt"
-    [[ -f "/boot/firmware/config.txt" ]] && BOOT_CONFIG="/boot/firmware/config.txt"
+    # Bookworm standardizes on /boot/firmware, with legacy fallback to /boot
+    BOOT_CONFIG="/boot/firmware/config.txt"
+    [[ ! -f "${BOOT_CONFIG}" && -f "/boot/config.txt" ]] && BOOT_CONFIG="/boot/config.txt"
 
     if [[ -f "${BOOT_CONFIG}" ]]; then
         log_info "Applying hardware tuning in ${BOOT_CONFIG}..."
 
-        # VideoCore IV MMAL GPU memory (128MB for smooth 720p/1080p decoding on 512MB RAM)
+        # KMS/DRM GPU memory allocation (128MB for smooth hardware decoding)
         if ! grep -q "^gpu_mem=" "${BOOT_CONFIG}"; then
             echo "gpu_mem=128" >> "${BOOT_CONFIG}"
         else
@@ -390,8 +394,8 @@ if [[ "${CONFIGURE_BOOT_CONFIG}" == "true" && "${DRY_RUN}" != "true" ]]; then
 fi
 
 if [[ "${SUPPRESS_FB_CURSOR}" == "true" && "${DRY_RUN}" != "true" ]]; then
-    BOOT_CMDLINE="/boot/cmdline.txt"
-    [[ -f "/boot/firmware/cmdline.txt" ]] && BOOT_CMDLINE="/boot/firmware/cmdline.txt"
+    BOOT_CMDLINE="/boot/firmware/cmdline.txt"
+    [[ ! -f "${BOOT_CMDLINE}" && -f "/boot/cmdline.txt" ]] && BOOT_CMDLINE="/boot/cmdline.txt"
 
     if [[ -f "${BOOT_CMDLINE}" ]]; then
         if ! grep -q "vt.global_cursor_default=0" "${BOOT_CMDLINE}"; then
@@ -556,7 +560,7 @@ echo -e "  • ${BOLD}PiKaraoke Web App:${RESET}        http://<pi-ip>:${PIKARAO
 echo -e "  • ${BOLD}Captive Wi-Fi Portal:${RESET}     http://<pi-ip>:${WIFI_MANAGER_PORT}"
 echo -e "  • ${BOLD}Song Library Directory:${RESET}   ${SONGS_DIR}"
 echo -e "  • ${BOLD}Persistent Data Storage:${RESET}  ${DATA_DIR}"
-echo -e "  • ${BOLD}Display Engine:${RESET}           cvlc (MMAL framebuffer acceleration)"
+echo -e "  • ${BOLD}Display Engine:${RESET}           cvlc (Direct Rendering Manager / KMS via --vout drm)"
 echo -e "  • ${BOLD}Installation Log:${RESET}         ${LOG_FILE}"
 echo -e "${GREEN}${BOLD}===================================================================${RESET}"
 echo ""

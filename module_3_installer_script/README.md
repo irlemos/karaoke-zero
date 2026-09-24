@@ -1,6 +1,6 @@
 # KaraokeZero - Module 3: Installer & Provisioning Engine
 
-The **Installer & Provisioning Engine** is the automated deployment system that turns a fresh **Raspberry Pi OS Lite (32-bit Bullseye)** image into an autonomous, ultra-low-overhead **KaraokeZero Appliance**.
+The **Installer & Provisioning Engine** is the automated deployment system that turns a fresh **Raspberry Pi OS Lite (32-bit Bookworm or newer)** image into an autonomous, ultra-low-overhead **KaraokeZero Appliance**.
 
 ---
 
@@ -14,9 +14,9 @@ The **Installer & Provisioning Engine** is the automated deployment system that 
   - Formats `/etc/fstab` with `defaults,noatime,nofail,x-systemd.device-timeout=10` to ensure that an unplugged USB drive will not block system boot into recovery mode.
   - Automatically isolates SQLite databases, `yt-dlp` download buffers, and the media library to the external storage mount (`/mnt/external_hd/karaoke`).
 - **Hardware & Firmware Tuning:**
-  - Configures `gpu_mem=128` in `/boot/config.txt` for VideoCore IV MMAL video decoding.
+  - Configures `gpu_mem=128` in `/boot/firmware/config.txt` for KMS/DRM hardware video decoding.
   - Forces `hdmi_drive=2` so Mini-HDMI to VGA active adapters receive audio for their 3.5mm analog output.
-  - Disables the blinking framebuffer console cursor via `consoleblank=0 vt.global_cursor_default=0` in `/boot/cmdline.txt`.
+  - Disables the blinking framebuffer console cursor via `consoleblank=0 vt.global_cursor_default=0` in `/boot/firmware/cmdline.txt`.
 - **Integrated Systemd Mesh:**
   - Registers, links, and auto-starts `wifi_manager.service`, `pikaraoke.service`, and `orchestrator.service`.
 

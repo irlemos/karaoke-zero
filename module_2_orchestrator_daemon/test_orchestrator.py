@@ -67,7 +67,7 @@ class TestDisplayManager(unittest.TestCase):
 
     def setUp(self):
         self.display = DisplayManager(
-            vout="mmal_vout",
+            vout="drm",
             aout="alsa",
             alsa_device="default",
             enable_rc=False
@@ -91,7 +91,7 @@ class TestDisplayManager(unittest.TestCase):
         self.assertEqual(cmd[0], "cvlc")
         self.assertIn("--loop", cmd)
         self.assertIn("--vout", cmd)
-        self.assertIn("mmal_vout", cmd)
+        self.assertIn("drm", cmd)
         self.assertIn("--sub-source", cmd)
         self.assertIn("logo", cmd)
         self.assertIn("/tmp/qrcode.png", cmd)
