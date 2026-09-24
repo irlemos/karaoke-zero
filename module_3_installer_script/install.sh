@@ -26,6 +26,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Default CLI options
 CONFIG_FILE="${SCRIPT_DIR}/config.env"
+LOG_FILE="${SCRIPT_DIR}/install.log"
 DRY_RUN="false"
 NON_INTERACTIVE="false"
 
@@ -38,6 +39,7 @@ Usage:
 
 Options:
     --config <path>       Specify custom config file (default: ${CONFIG_FILE})
+    --log <path>          Specify custom log file (default: ${LOG_FILE})
     --dry-run             Simulate execution without modifying the host system
     --non-interactive     Fail if required configurations are missing instead of prompting
     -h, --help            Show this help message
@@ -50,6 +52,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --config)
             CONFIG_FILE="$2"
+            shift 2
+            ;;
+        --log)
+            LOG_FILE="$2"
             shift 2
             ;;
         --dry-run)
@@ -70,9 +76,33 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# ------------------------------------------------------------------------------
+# Logging Initialization (captures terminal output to a single clean log file)
+# ------------------------------------------------------------------------------
+# Always start fresh with an empty log file for each run in the script directory
+: > "${LOG_FILE}"
+chmod 644 "${LOG_FILE}" 2>/dev/null || true
+if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    chown "${SUDO_USER}:" "${LOG_FILE}" 2>/dev/null || true
+fi
+
+# Duplicate stdout and stderr to both console and log file in real-time
+exec 3>&1 4>&2
+cleanup_logging() {
+    local exit_code=$?
+    if [[ ${exit_code} -ne 0 ]]; then
+        echo -e "${RED}${BOLD}[ERROR] Installation aborted or failed with exit code ${exit_code}.${RESET}" >&2
+        echo -e "${RED}${BOLD}[ERROR] Full installation log available at: ${LOG_FILE}${RESET}" >&2
+    fi
+    exec 1>&3 2>&4 3>&- 4>&- 2>/dev/null || true
+}
+trap cleanup_logging EXIT INT TERM
+exec > >(tee "${LOG_FILE}") 2>&1
+
 echo -e "${BOLD}===================================================================${RESET}"
 echo -e "${BOLD}🎤⚡ KaraokeZero Appliance - Automated Provisioning Engine${RESET}"
 echo -e "${BOLD}===================================================================${RESET}"
+log_info "Logging session output to: ${LOG_FILE}"
 
 # ------------------------------------------------------------------------------
 # 1. Pre-flight Checks
@@ -527,6 +557,7 @@ echo -e "  • ${BOLD}Captive Wi-Fi Portal:${RESET}     http://<pi-ip>:${WIFI_MA
 echo -e "  • ${BOLD}Song Library Directory:${RESET}   ${SONGS_DIR}"
 echo -e "  • ${BOLD}Persistent Data Storage:${RESET}  ${DATA_DIR}"
 echo -e "  • ${BOLD}Display Engine:${RESET}           cvlc (MMAL framebuffer acceleration)"
+echo -e "  • ${BOLD}Installation Log:${RESET}         ${LOG_FILE}"
 echo -e "${GREEN}${BOLD}===================================================================${RESET}"
 echo ""
 if [[ "${CONFIGURE_BOOT_CONFIG}" == "true" ]]; then

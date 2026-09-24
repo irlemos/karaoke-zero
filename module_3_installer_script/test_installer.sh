@@ -69,6 +69,41 @@ test_interactive_sd_card() {
     echo "${out}" | grep -q "Provisioning Complete"
 }
 
+# Test 7: Clean Log File Generation (Single log file, overwritten on each run)
+test_log_generation_and_freshness() {
+    local log_file="${SCRIPT_DIR}/install.log"
+    rm -f "${log_file}"
+
+    # Verify --help does not generate log
+    bash "${INSTALLER}" --help >/dev/null 2>&1
+    if [[ -f "${log_file}" ]]; then
+        echo "Help flag unexpectedly created log file"
+        return 1
+    fi
+
+    # First dry run execution
+    bash "${INSTALLER}" --dry-run --config "${CONFIG_EXAMPLE}" >/dev/null
+    [[ -f "${log_file}" ]] || return 1
+    grep -q "KaraokeZero Appliance - Automated Provisioning Engine" "${log_file}" || return 1
+    grep -q "Provisioning Complete" "${log_file}" || return 1
+
+    local first_run_lines
+    first_run_lines=$(wc -l < "${log_file}")
+
+    # Second execution: verify the log is freshly truncated/overwritten and not duplicated
+    bash "${INSTALLER}" --dry-run --config "${CONFIG_EXAMPLE}" >/dev/null
+    local second_run_lines
+    second_run_lines=$(wc -l < "${log_file}")
+
+    [[ "${first_run_lines}" -eq "${second_run_lines}" ]] || return 1
+    local banners
+    banners=$(grep -c "KaraokeZero Appliance - Automated Provisioning Engine" "${log_file}")
+    [[ "${banners}" -eq 1 ]] || return 1
+
+    # Cleanup log created during tests
+    rm -f "${log_file}"
+}
+
 echo "==================================================================="
 echo "Running Module 3 Installer Test Suite"
 echo "==================================================================="
@@ -79,6 +114,7 @@ run_test "Unattended dry run (config.env.example)" test_unattended_dry_run
 run_test "Non-interactive incomplete config check" test_non_interactive_failure
 run_test "Interactive external HD input simulation" test_interactive_external_hd
 run_test "Interactive internal SD card input simulation" test_interactive_sd_card
+run_test "Clean single log file generation" test_log_generation_and_freshness
 
 echo "==================================================================="
 if [[ "${FAILED}" -eq 0 ]]; then

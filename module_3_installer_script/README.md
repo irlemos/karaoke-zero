@@ -71,10 +71,21 @@ sudo bash install.sh [OPTIONS]
 
 Options:
     --config <path>       Specify custom config file (default: config.env)
+    --log <path>          Specify custom log file (default: install.log in script dir)
     --dry-run             Simulate installation without modifying the host system
     --non-interactive     Fail immediately if required variables are missing
     -h, --help            Show usage information
 ```
+
+### 3.4. Installation Logging & Diagnostics
+The installer automatically logs all terminal activity (stdout and stderr) to a dedicated log file in the script's directory:
+```bash
+# View the real-time or completed installation log
+cat module_3_installer_script/install.log
+```
+- **Single Clean Log:** The log file (`install.log`) is freshly initialized/truncated on each run, preventing log sprawl and stale output.
+- **Root & User Friendly:** Permissions are configured (644) and ownership assigned to `${SUDO_USER}` so non-root users can read and diagnose the installation log.
+- **Failure Warnings:** If any step fails, an error notice points directly to `install.log` with the failing exit code.
 
 ---
 
@@ -114,6 +125,7 @@ Running: Unattended dry run (config.env.example)... PASSED
 Running: Non-interactive incomplete config check... PASSED
 Running: Interactive external HD input simulation... PASSED
 Running: Interactive internal SD card input simulation... PASSED
+Running: Clean single log file generation... PASSED
 ===================================================================
 All tests passed successfully!
 ```
