@@ -31,9 +31,9 @@
       "execution_mode": "Strictly background daemon",
       "startup_flags": [
         "--headless",
-        "--download-on-queue",
-        "--path /mnt/external_hd/karaoke/songs",
-        "--data-dir /mnt/external_hd/karaoke/data"
+        "--port 5555",
+        "--download-path /mnt/external_hd/karaoke/songs",
+        "--config-file-path /mnt/external_hd/karaoke/data/config.ini"
       ]
     },
     "media_player": "VLC Media Player (CLI via cvlc wrapper)",

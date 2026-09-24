@@ -114,7 +114,7 @@ The interactive installer automatically:
 | :--- | :--- | :--- |
 | **Operating System** | Raspberry Pi OS Lite | 32-bit Bullseye (Legacy, headless, no desktop environment) |
 | **Networking** | NetworkManager (`nmcli`) | Prioritized multi-profile connection management |
-| **Karaoke Core** | [PiKaraoke](https://github.com/vicwomg/pikaraoke) | Headless daemon (`--headless --download-on-queue`) |
+| **Karaoke Core** | [PiKaraoke](https://github.com/vicwomg/pikaraoke) | Headless daemon (`--headless --download-path`) |
 | **Media Player** | VLC CLI (`cvlc`) | Direct framebuffer rendering (`mmal_vout`) |
 | **Display Tools** | `qrencode` | Generates mobile-access QR code on the fly |
 

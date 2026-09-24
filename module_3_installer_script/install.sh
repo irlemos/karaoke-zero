@@ -313,10 +313,12 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         python3 -m venv "${PIKARAOKE_INSTALL_DIR}/venv"
     fi
 
-    log_info "Installing PiKaraoke Python dependencies..."
-    "${PIKARAOKE_INSTALL_DIR}/venv/bin/pip" install --upgrade pip
-    if [[ -f "${PIKARAOKE_INSTALL_DIR}/requirements.txt" ]]; then
-        "${PIKARAOKE_INSTALL_DIR}/venv/bin/pip" install -r "${PIKARAOKE_INSTALL_DIR}/requirements.txt"
+    log_info "Installing PiKaraoke and dependencies into virtual environment..."
+    "${PIKARAOKE_INSTALL_DIR}/venv/bin/pip" install --upgrade pip setuptools wheel
+    if [[ -f "${PIKARAOKE_INSTALL_DIR}/pyproject.toml" ]]; then
+        "${PIKARAOKE_INSTALL_DIR}/venv/bin/pip" install --extra-index-url https://www.piwheels.org/simple "${PIKARAOKE_INSTALL_DIR}"
+    elif [[ -f "${PIKARAOKE_INSTALL_DIR}/requirements.txt" ]]; then
+        "${PIKARAOKE_INSTALL_DIR}/venv/bin/pip" install --extra-index-url https://www.piwheels.org/simple -r "${PIKARAOKE_INSTALL_DIR}/requirements.txt"
     fi
 fi
 
@@ -477,6 +479,13 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     # Module 2: Orchestrator Service
     cp "${KARAOKEZERO_INSTALL_DIR}/module_2_orchestrator_daemon/orchestrator.service" /etc/systemd/system/
 
+    # Ensure persistent data directory and link ~/.pikaraoke to DATA_DIR for SQLite storage
+    mkdir -p "${DATA_DIR}"
+    if [[ ! -L "/root/.pikaraoke" ]]; then
+        rm -rf /root/.pikaraoke
+        ln -s "${DATA_DIR}" /root/.pikaraoke
+    fi
+
     # PiKaraoke Core Service (Generate from template with resolved storage paths)
     cat << EOF > /etc/systemd/system/pikaraoke.service
 [Unit]
@@ -488,15 +497,15 @@ Wants=network.target
 Type=simple
 User=root
 WorkingDirectory=${PIKARAOKE_INSTALL_DIR}
-ExecStart=${PIKARAOKE_INSTALL_DIR}/venv/bin/python app.py \\
+ExecStart=${PIKARAOKE_INSTALL_DIR}/venv/bin/python -m pikaraoke.app \\
     --headless \\
-    --download-on-queue \\
     --port ${PIKARAOKE_PORT} \\
-    --path ${SONGS_DIR} \\
-    --data-dir ${DATA_DIR}
+    --download-path ${SONGS_DIR} \\
+    --config-file-path ${DATA_DIR}/config.ini
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/root
 KillMode=mixed
 TimeoutStopSec=10
 

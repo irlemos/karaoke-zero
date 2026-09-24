@@ -7,15 +7,15 @@ Wants=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/pikaraoke
-ExecStart=/opt/pikaraoke/venv/bin/python app.py \
+ExecStart=/opt/pikaraoke/venv/bin/python -m pikaraoke.app \
     --headless \
-    --download-on-queue \
     --port 5555 \
-    --path /mnt/external_hd/karaoke/songs \
-    --data-dir /mnt/external_hd/karaoke/data
+    --download-path /mnt/external_hd/karaoke/songs \
+    --config-file-path /mnt/external_hd/karaoke/data/config.ini
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/root
 
 # Memory & Process isolation
 KillMode=mixed
