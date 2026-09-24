@@ -6,8 +6,8 @@ Wants=NetworkManager.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/karaokezero/module_1_wifi_manager
-ExecStart=/usr/bin/python3 /opt/karaokezero/module_1_wifi_manager/app.py
+WorkingDirectory=/opt/karaokezero/wifi_manager
+ExecStart=/usr/bin/python3 /opt/karaokezero/wifi_manager/app.py
 Restart=always
 RestartSec=5
 Environment=PORT=8888

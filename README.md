@@ -53,25 +53,60 @@ Instead of forking [PiKaraoke](https://github.com/vicwomg/pikaraoke), KaraokeZer
 
 ---
 
-## 🏗️ Architectural Modules
+## 📁 Repository Structure
 
-KaraokeZero is structured into three dedicated modular components:
+```text
+karaoke-zero/
+├── install.sh                  # Root automated deployment script
+├── config.env                  # Deployment configuration file
+├── config.env.example          # Sample configuration for unattended setups
+├── karaokezero-manifest.json   # Architecture manifest v2.0.0
+├── AGENTS.md                   # Project design guidelines and constraints
+├── README.md                   # Project overview and deployment guide
+├── LICENSE                     # AGPL-3.0 License
+│
+├── wifi_manager/               # Captive-style portal for Wi-Fi management
+│   ├── app.py                  # Flask web service interacting with nmcli
+│   ├── templates/index.html    # Standalone mobile UI (zero external CDNs)
+│   ├── test_wifi_manager.py    # Unit tests for network parser and endpoints
+│   └── README.md               # Technical component documentation
+│
+├── orchestrator/               # Hardware-accelerated playback and queue engine
+│   ├── orchestrator.py         # Main daemon entrypoint and state machine
+│   ├── display_manager.py      # Subprocess manager for cvlc (--vout drm)
+│   ├── network_watcher.py      # Generates dynamic QR code for web access
+│   ├── pikaraoke_client.py     # Local REST & WebSocket client for PiKaraoke
+│   ├── test_orchestrator.py    # Unit test suite for display and transitions
+│   └── README.md               # Technical component documentation
+│
+├── systemd/                    # Systemd service unit templates
+│   ├── pikaraoke.service       # PiKaraoke core headless daemon service
+│   ├── wifi_manager.service    # Captive portal service unit
+│   └── orchestrator.service    # Display orchestrator service unit
+│
+└── tests/                      # Automated test suite
+    └── test_installer.sh       # Comprehensive installer integration tests
+```
 
-### 1. `module_1_wifi_manager` (Captive Portal)
+---
+
+## 🏗️ System Components
+
+### 1. `wifi_manager/` (Captive Portal)
 - Dynamic, ultra-lightweight Wi-Fi onboarding service built with Python and Flask.
 - Interfaces directly with `NetworkManager` (`nmcli`) without desktop tools.
 - Automatically connects to the Administrator's Mobile Hotspot (Priority `100`) if no venue Wi-Fi is reachable.
 - Allows venue Wi-Fi selection via a lightweight, 100% offline captive mobile UI, configuring the network with Priority `50`.
 
-### 2. `module_2_orchestrator_daemon` (Display & Queue Engine)
+### 2. `orchestrator/` (Display & Queue Engine)
 - Background daemon that polls the local PiKaraoke API (`/api/queue`).
 - **Idle State:** Renders a looping background video overlaying a dynamically generated QR code (`qrencode`) directly on the screen pointing to the mobile web app (`http://<ip>:5555`).
 - **Playing State:** Seamlessly switches to full-screen hardware-accelerated playback of the active song via `cvlc --vout drm`.
 - Kills playback processes between tracks to prevent memory leaks and releases video buffers.
 
-### 3. `module_3_installer_script` (One-Click Deployment)
-- Automated provisioning script for fresh Raspberry Pi OS Lite installations.
-- Configures `/etc/fstab` for the external USB drive, clones upstream PiKaraoke, and sets up systemd service units (`wifi_manager.service`, `orchestrator.service`, `pikaraoke.service`).
+### 3. `install.sh` (Master Provisioning Engine)
+- Automated deployment script located at the repository root for fresh Raspberry Pi OS Lite installations.
+- Configures `/etc/fstab` for the external USB drive, clones latest upstream PiKaraoke (from `master`), sets up Python virtual environments (PEP 668), and enables all systemd services.
 
 ---
 
@@ -89,22 +124,32 @@ sudo apt update && sudo apt install -y git curl
 ```bash
 # Clone the repository
 git clone https://github.com/irlemos/karaoke-zero.git /tmp/karaoke-zero
+cd /tmp/karaoke-zero
 
-# Run the installer script (automatically resolves and installs all dependencies)
-cd /tmp/karaoke-zero/module_3_installer_script
+# Run the installer script directly from the repository root
 sudo bash install.sh
 
 # Reboot the Raspberry Pi to apply GPU memory & firmware tuning
 sudo reboot
 ```
 
-The interactive installer automatically:
-1. Installs all required system dependencies (`network-manager`, `vlc`, `qrencode`, `ffmpeg`, `alsa-utils`, `python3-flask`, `python3-venv`).
-2. Installs the latest official standalone `yt-dlp` binary.
-3. Clones and configures upstream PiKaraoke inside an isolated Python virtual environment.
-4. Guides you through the **MicroSD flash wear warning** and selecting your external USB drive/SSD (`/mnt/external_hd/karaoke`).
-5. Configures your initial fallback Wi-Fi network (Admin Mobile Hotspot with Priority 100).
-6. Registers and enables the entire systemd service mesh (`wifi_manager.service`, `pikaraoke.service`, `orchestrator.service`).
+### 3. Installer Command-Line Arguments
+```bash
+sudo bash install.sh [OPTIONS]
+
+Options:
+    --config <path>       Specify custom config file (default: config.env)
+    --log <path>          Specify custom log file (default: install.log)
+    --dry-run             Simulate installation without modifying the host system
+    --non-interactive     Fail immediately if required variables are missing
+    -h, --help            Show usage information
+```
+
+### 4. Logging & Diagnostics
+The installer records all terminal output (stdout and stderr) to a clean, fresh log file on every run:
+```bash
+cat install.log
+```
 
 ---
 
@@ -117,6 +162,19 @@ The interactive installer automatically:
 | **Karaoke Core** | [PiKaraoke](https://github.com/vicwomg/pikaraoke) | Headless daemon (`--headless --download-path`) |
 | **Media Player** | VLC CLI (`cvlc`) | Direct Rendering Manager / KMS (`--vout drm`) |
 | **Display Tools** | `qrencode` | Generates mobile-access QR code on the fly |
+
+---
+
+## 🧪 Automated Testing
+
+Execute the test suites to validate installer integrity and component state machines:
+```bash
+# Run installer test suite (dry-run, syntax, logging, input simulations)
+bash tests/test_installer.sh
+
+# Run orchestrator daemon unit tests
+python3 -m unittest discover -s orchestrator
+```
 
 ---
 

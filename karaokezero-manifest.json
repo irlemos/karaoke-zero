@@ -39,8 +39,8 @@
     "media_player": "VLC Media Player (CLI via cvlc wrapper)",
     "video_rendering_engine": "Direct Rendering Manager (KMS/DRM) / Hardware Acceleration via V4L2"
   },
-  "custom_modules_to_build": {
-    "module_1_wifi_manager": {
+  "custom_components": {
+    "wifi_manager": {
       "purpose": "Dynamic and lightweight captive-style portal for network selection without a monitor.",
       "tech_stack": "Python 3, Flask, NetworkManager CLI (nmcli)",
       "logic_flow": [
@@ -52,7 +52,7 @@
         "6. Flask app registers new network (Priority 50) and connects, moving Pi to the venue's network."
       ]
     },
-    "module_2_orchestrator_daemon": {
+    "orchestrator": {
       "purpose": "Background service to monitor PiKaraoke state and manage the physical display seamlessly via DRM.",
       "tech_stack": "Python (requests) or Bash, qrencode, cvlc",
       "logic_flow": [
@@ -63,7 +63,7 @@
         "5. Track ends -> VLC auto-closes -> Daemon detects 'is_playing' == false -> Re-spawns IDLE STATE."
       ]
     },
-    "module_3_installer_script": {
+    "installer": {
       "purpose": "Automated 'One-Click' deployment script to transform a fresh Bookworm OS into the KaraokeZero Appliance.",
       "actions": [
         "Install dependencies: vlc, python3-flask, network-manager, qrencode, yt-dlp.",

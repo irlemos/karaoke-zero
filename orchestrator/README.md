@@ -1,4 +1,4 @@
-# KaraokeZero - Module 2: Display & Queue Orchestrator Daemon
+# KaraokeZero - Display & Queue Orchestrator Daemon
 
 The **Orchestrator Daemon** is the display and playback management engine for KaraokeZero, specifically engineered for resource-constrained, single-core embedded devices like the **Raspberry Pi Zero W** (512MB RAM, ARMv6) running **Raspberry Pi OS Lite** (32-bit Bookworm or newer, headless).
 
@@ -151,7 +151,7 @@ python3 orchestrator.py --pikaraoke-url http://127.0.0.1:5555 --interface wlan0
 
 ### Systemd Service Setup:
 ```bash
-sudo cp orchestrator.service /etc/systemd/system/
+sudo cp ../systemd/orchestrator.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable orchestrator.service
 sudo systemctl start orchestrator.service

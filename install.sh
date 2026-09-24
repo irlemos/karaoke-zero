@@ -22,7 +22,7 @@ log_warn()    { echo -e "${YELLOW}[WARN]${RESET} $*"; }
 log_error()   { echo -e "${RED}[ERROR]${RESET} $*"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="${SCRIPT_DIR}"
 
 # Default CLI options
 CONFIG_FILE="${SCRIPT_DIR}/config.env"
@@ -356,16 +356,16 @@ if [[ "${DRY_RUN}" != "true" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 7. KaraokeZero Modules Deployment
+# 7. KaraokeZero Services Deployment
 # ------------------------------------------------------------------------------
-log_info "Installing KaraokeZero appliance modules into ${KARAOKEZERO_INSTALL_DIR}..."
+log_info "Installing KaraokeZero appliance services into ${KARAOKEZERO_INSTALL_DIR}..."
 
 if [[ "${DRY_RUN}" != "true" ]]; then
     mkdir -p "${KARAOKEZERO_INSTALL_DIR}"
-    cp -r "${PROJECT_ROOT}/module_1_wifi_manager" "${KARAOKEZERO_INSTALL_DIR}/"
-    cp -r "${PROJECT_ROOT}/module_2_orchestrator_daemon" "${KARAOKEZERO_INSTALL_DIR}/"
-    chmod +x "${KARAOKEZERO_INSTALL_DIR}/module_1_wifi_manager/app.py"
-    chmod +x "${KARAOKEZERO_INSTALL_DIR}/module_2_orchestrator_daemon/orchestrator.py"
+    cp -r "${PROJECT_ROOT}/wifi_manager" "${KARAOKEZERO_INSTALL_DIR}/"
+    cp -r "${PROJECT_ROOT}/orchestrator" "${KARAOKEZERO_INSTALL_DIR}/"
+    chmod +x "${KARAOKEZERO_INSTALL_DIR}/wifi_manager/app.py"
+    chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/orchestrator.py"
 fi
 
 # ------------------------------------------------------------------------------
@@ -507,11 +507,11 @@ fi
 log_info "Registering systemd services..."
 
 if [[ "${DRY_RUN}" != "true" ]]; then
-    # Module 1: WiFi Manager Service
-    cp "${KARAOKEZERO_INSTALL_DIR}/module_1_wifi_manager/wifi_manager.service" /etc/systemd/system/
+    # WiFi Manager Service
+    cp "${PROJECT_ROOT}/systemd/wifi_manager.service" /etc/systemd/system/
 
-    # Module 2: Orchestrator Service
-    cp "${KARAOKEZERO_INSTALL_DIR}/module_2_orchestrator_daemon/orchestrator.service" /etc/systemd/system/
+    # Orchestrator Service
+    cp "${PROJECT_ROOT}/systemd/orchestrator.service" /etc/systemd/system/
 
     # Ensure persistent data directory and link ~/.pikaraoke to DATA_DIR for SQLite storage
     mkdir -p "${DATA_DIR}"

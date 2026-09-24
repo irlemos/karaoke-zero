@@ -1,13 +1,13 @@
 [Unit]
-Description=KaraokeZero Module 2 Display & Queue Orchestrator Daemon
+Description=KaraokeZero Display & Queue Orchestrator Daemon
 After=network.target NetworkManager.service pikaraoke.service
 Wants=pikaraoke.service
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/karaokezero/module_2_orchestrator_daemon
-ExecStart=/usr/bin/python3 /opt/karaokezero/module_2_orchestrator_daemon/orchestrator.py
+WorkingDirectory=/opt/karaokezero/orchestrator
+ExecStart=/usr/bin/python3 /opt/karaokezero/orchestrator/orchestrator.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

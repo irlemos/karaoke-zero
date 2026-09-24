@@ -6,9 +6,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALLER="${SCRIPT_DIR}/install.sh"
-CONFIG_EXAMPLE="${SCRIPT_DIR}/config.env.example"
-CONFIG_BASE="${SCRIPT_DIR}/config.env"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+INSTALLER="${PROJECT_ROOT}/install.sh"
+CONFIG_EXAMPLE="${PROJECT_ROOT}/config.env.example"
+CONFIG_BASE="${PROJECT_ROOT}/config.env"
 
 FAILED=0
 
@@ -71,7 +72,7 @@ test_interactive_sd_card() {
 
 # Test 7: Clean Log File Generation (Single log file, overwritten on each run)
 test_log_generation_and_freshness() {
-    local log_file="${SCRIPT_DIR}/install.log"
+    local log_file="${PROJECT_ROOT}/install.log"
     rm -f "${log_file}"
 
     # Verify --help does not generate log
@@ -105,7 +106,7 @@ test_log_generation_and_freshness() {
 }
 
 echo "==================================================================="
-echo "Running Module 3 Installer Test Suite"
+echo "Running KaraokeZero Installer Test Suite"
 echo "==================================================================="
 
 run_test "Bash syntax check" test_syntax

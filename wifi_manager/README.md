@@ -1,4 +1,4 @@
-# KaraokeZero - Module 1: WiFi Manager
+# KaraokeZero - WiFi Manager
 
 Dynamic, ultra-lightweight captive portal for headless Wi-Fi network provisioning, optimized specifically for **Raspberry Pi Zero W** (512MB RAM, ARMv6).
 
@@ -87,9 +87,9 @@ PORT=8080 HOST=127.0.0.1 python3 app.py
 ```
 
 ### Systemd Service Deployment
-Copy the provided unit file into systemd:
+Copy the provided unit file from `systemd/` into systemd:
 ```bash
-sudo cp wifi_manager.service /etc/systemd/system/
+sudo cp ../systemd/wifi_manager.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable wifi_manager.service
 sudo systemctl start wifi_manager.service
