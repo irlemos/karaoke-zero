@@ -38,7 +38,13 @@ module_3_installer_script/
 
 ## 3. Quick Start & Usage
 
-### 3.1. Interactive Installation (Default)
+### 3.1. Bootstrap Prerequisites
+On a clean minimal installation of Raspberry Pi OS Lite, install `git` and `curl` first:
+```bash
+sudo apt update && sudo apt install -y git curl
+```
+
+### 3.2. Interactive Installation (Default)
 To run the interactive installer on a freshly booted Raspberry Pi:
 ```bash
 cd module_3_installer_script
