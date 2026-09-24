@@ -282,6 +282,27 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     log_info "Installing / updating official yt-dlp binary..."
     curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
     chmod a+rx /usr/local/bin/yt-dlp
+
+    # Enable and start NetworkManager service, disabling conflicting legacy dhcpcd
+    log_info "Activating NetworkManager service..."
+    if command -v systemctl >/dev/null 2>&1; then
+        if systemctl is-active --quiet dhcpcd 2>/dev/null; then
+            log_info "Disabling conflicting legacy dhcpcd in favor of NetworkManager..."
+            systemctl stop dhcpcd 2>/dev/null || true
+            systemctl disable dhcpcd 2>/dev/null || true
+        fi
+        systemctl unmask NetworkManager.service 2>/dev/null || true
+        systemctl enable NetworkManager.service 2>/dev/null || true
+        systemctl start NetworkManager.service 2>/dev/null || true
+
+        # Allow NetworkManager daemon to initialize its D-Bus interface
+        for _ in {1..5}; do
+            if nmcli general status >/dev/null 2>&1; then
+                break
+            fi
+            sleep 1
+        done
+    fi
 fi
 
 # ------------------------------------------------------------------------------
@@ -366,24 +387,74 @@ fi
 # ------------------------------------------------------------------------------
 if [[ -n "${ADMIN_WIFI_SSID}" && "${DRY_RUN}" != "true" ]]; then
     log_info "Configuring fallback Wi-Fi network '${ADMIN_WIFI_SSID}' (Priority 100)..."
-    if command -v nmcli >/dev/null 2>&1; then
+
+    NM_PROVISIONED=false
+
+    # Try nmcli first if NetworkManager daemon is active and responsive
+    if command -v nmcli >/dev/null 2>&1 && nmcli general status >/dev/null 2>&1; then
         nmcli connection delete "${ADMIN_WIFI_SSID}" >/dev/null 2>&1 || true
-        nmcli connection add \
+        if nmcli connection add \
             type wifi \
             con-name "${ADMIN_WIFI_SSID}" \
             ifname wlan0 \
             ssid "${ADMIN_WIFI_SSID}" \
             connection.autoconnect yes \
-            connection.autoconnect-priority 100
+            connection.autoconnect-priority 100 >/dev/null 2>&1; then
 
-        if [[ -n "${ADMIN_WIFI_PASSWORD}" ]]; then
-            nmcli connection modify "${ADMIN_WIFI_SSID}" \
-                wifi-sec.key-mgmt wpa-psk \
-                wifi-sec.psk "${ADMIN_WIFI_PASSWORD}"
+            if [[ -n "${ADMIN_WIFI_PASSWORD}" ]]; then
+                nmcli connection modify "${ADMIN_WIFI_SSID}" \
+                    wifi-sec.key-mgmt wpa-psk \
+                    wifi-sec.psk "${ADMIN_WIFI_PASSWORD}" >/dev/null 2>&1 || true
+            fi
+            NM_PROVISIONED=true
+            log_success "Saved NetworkManager connection '${ADMIN_WIFI_SSID}' via nmcli."
         fi
-        log_success "Saved NetworkManager connection '${ADMIN_WIFI_SSID}'."
-    else
-        log_warn "nmcli not available yet. NetworkManager profile will need to be configured on first boot."
+    fi
+
+    # Fallback: Write the native NetworkManager keyfile directly to disk
+    if [[ "${NM_PROVISIONED}" != "true" ]]; then
+        log_info "Writing NetworkManager keyfile directly to /etc/NetworkManager/system-connections/..."
+        NM_DIR="/etc/NetworkManager/system-connections"
+        mkdir -p "${NM_DIR}"
+        NM_FILE="${NM_DIR}/${ADMIN_WIFI_SSID}.nmconnection"
+        UUID_VAL=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "c3d1f456-789a-4bc1-9def-0123456789ab")
+
+        cat << EOF > "${NM_FILE}"
+[connection]
+id=${ADMIN_WIFI_SSID}
+uuid=${UUID_VAL}
+type=wifi
+interface-name=wlan0
+autoconnect=true
+autoconnect-priority=100
+
+[wifi]
+mode=infrastructure
+ssid=${ADMIN_WIFI_SSID}
+
+EOF
+        if [[ -n "${ADMIN_WIFI_PASSWORD}" ]]; then
+            cat << EOF >> "${NM_FILE}"
+[wifi-security]
+key-mgmt=wpa-psk
+psk=${ADMIN_WIFI_PASSWORD}
+
+EOF
+        fi
+
+        cat << EOF >> "${NM_FILE}"
+[ipv4]
+method=auto
+
+[ipv6]
+method=auto
+EOF
+        chmod 600 "${NM_FILE}"
+        chown root:root "${NM_FILE}" 2>/dev/null || true
+        log_success "Saved NetworkManager profile to '${NM_FILE}'."
+
+        # Trigger connection reload if nmcli is available
+        nmcli connection reload >/dev/null 2>&1 || true
     fi
 fi
 
