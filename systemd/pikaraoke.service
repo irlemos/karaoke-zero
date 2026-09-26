@@ -14,7 +14,10 @@ ExecStart=/opt/pikaraoke/venv/bin/python -m pikaraoke.app \
     --headless \
     --port 5555 \
     --download-path /mnt/external_hd/karaoke/songs \
-    --config-file-path /mnt/external_hd/karaoke/data/config.ini
+    --config-file-path /mnt/external_hd/karaoke/data/config.ini \
+    --streaming-format mp4 \
+    --disable-bg-video \
+    --disable-bg-music
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

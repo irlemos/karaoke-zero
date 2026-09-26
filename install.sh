@@ -336,6 +336,7 @@ PKGS=(
     python3-mutagen
     python3-pycryptodome
     python3-websockets
+    python3-socketio
     python3-qrcode
     python3-requests
     python3-urllib3
@@ -637,7 +638,10 @@ ExecStart=${PIKARAOKE_INSTALL_DIR}/venv/bin/python -m pikaraoke.app \\
     --headless \\
     --port ${PIKARAOKE_PORT} \\
     --download-path ${SONGS_DIR} \\
-    --config-file-path ${DATA_DIR}/config.ini
+    --config-file-path ${DATA_DIR}/config.ini \\
+    --streaming-format mp4 \\
+    --disable-bg-video \\
+    --disable-bg-music
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
@@ -673,7 +677,7 @@ echo -e "  • ${BOLD}PiKaraoke Web App:${RESET}        http://<pi-ip>:${PIKARAO
 echo -e "  • ${BOLD}Captive Wi-Fi Portal:${RESET}     http://<pi-ip>:${WIFI_MANAGER_PORT}"
 echo -e "  • ${BOLD}Song Library Directory:${RESET}   ${SONGS_DIR}"
 echo -e "  • ${BOLD}Persistent Data Storage:${RESET}  ${DATA_DIR}"
-echo -e "  • ${BOLD}Display Engine:${RESET}           mpv (Direct DRM/KMS VideoCore IV GPU via --vo=gpu)"
+echo -e "  • ${BOLD}Display Engine:${RESET}           mpv (Direct DRM/KMS GPU) + Zero-CPU Static Console Idle"
 echo -e "  • ${BOLD}Installation Log:${RESET}         ${LOG_FILE}"
 echo -e "${GREEN}${BOLD}===================================================================${RESET}"
 echo ""

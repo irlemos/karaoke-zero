@@ -139,38 +139,133 @@ class OrchestratorDaemon:
         if self.state == self.STATE_PLAYING:
             self.display.stop(timeout=1.0)
 
+    def _find_local_song_file(self, song_title: str) -> Optional[str]:
+        """
+        Attempts to locate the actual downloaded media file in local storage.
+        Playing direct from disk eliminates HTTP streaming and transcode latency.
+        """
+        candidate_dirs = [
+            "/mnt/external_hd/karaoke/songs",
+            os.path.expanduser("~/songs")
+        ]
+        clean_title = song_title.strip().lower()
+        for base_dir in candidate_dirs:
+            if not os.path.isdir(base_dir):
+                continue
+            try:
+                for root, _, files in os.walk(base_dir):
+                    for fname in files:
+                        fname_lower = fname.lower()
+                        name_without_ext = os.path.splitext(fname_lower)[0]
+                        if clean_title in name_without_ext or name_without_ext in clean_title:
+                            full_path = os.path.join(root, fname)
+                            if os.path.isfile(full_path):
+                                logger.info("Found local media file for '%s': %s", song_title, full_path)
+                                return full_path
+            except Exception as e:
+                logger.debug("Error scanning %s for song: %s", base_dir, e)
+        return None
+
+    def render_idle_screen(self, tty_device: str = "/dev/tty1") -> None:
+        """
+        Renders the static, zero-CPU idle screen to the HDMI console (/dev/tty1).
+        Displays appliance branding, network connection info, and a scannable QR code.
+        """
+        ip = self.network.get_ip_address()
+        web_url = f"http://{ip}:{self.network.port}" if ip else f"http://127.0.0.1:{self.network.port}"
+        portal_url = f"http://{ip}:8888" if ip else "http://192.168.4.1:8888"
+
+        qr_text = self.network.get_terminal_qr(web_url)
+        qr_lines = []
+        if qr_text:
+            for line in qr_text.splitlines():
+                qr_lines.append(f"          {line}")
+            qr_block = "\n".join(qr_lines)
+        else:
+            qr_block = f"          [ QR Code Available at {web_url} ]"
+
+        screen = [
+            "",
+            "  ============================================================================",
+            "                            K A R A O K E - Z E R O                           ",
+            "                     Standalone Offline Karaoke Appliance                     ",
+            "  ============================================================================",
+            "",
+            "                 >>> SCAN WITH YOUR PHONE TO CHOOSE SONGS <<<                 ",
+            "                 >>>  ESCANEIE COM O CELULAR PARA CANTAR  <<<                 ",
+            "",
+            qr_block,
+            "",
+            "   • Wi-Fi Network:      Connect to Venue Wi-Fi or Hotspot 'KaraokeZero-Setup'",
+            f"   • PiKaraoke Web App:  {web_url}",
+            f"   • Wi-Fi Setup Portal: {portal_url}",
+            "",
+            "  ----------------------------------------------------------------------------",
+            "   Status: IDLE (Waiting for singers) | 0 Active Songs | CPU: 0% Standby      ",
+            "  ============================================================================",
+            ""
+        ]
+
+        try:
+            with open(tty_device, "w", encoding="utf-8") as f:
+                f.write("\033[2J\033[H\033[?25l" + "\n".join(screen) + "\n")
+                f.flush()
+        except PermissionError:
+            logger.debug("Insufficient permissions to write idle screen to %s", tty_device)
+        except Exception as e:
+            logger.debug("Failed to write idle screen to console %s: %s", tty_device, e)
+
     def transition_to_idle(self) -> None:
-        """Transitions state machine to IDLE state and starts looping background."""
-        logger.info("Transitioning to IDLE state.")
+        """Transitions state machine to IDLE state and renders the static console screen."""
+        logger.info("Transitioning to IDLE state (Zero-CPU Mode).")
         self.state = self.STATE_IDLE
         self.active_song_id = None
         self.last_pause_state = False
 
-        # Ensure QR code is up-to-date
-        self.network.update()
-        qr_path = self.network.qr_output_path if os.path.exists(self.network.qr_output_path) else None
+        # Ensure any video playback is stopped (Zero CPU)
+        self.display.stop(timeout=1.0)
 
-        # Launch idle looping video with QR code logo
-        self.display.start_idle(video_path=self.bg_video, qr_code_path=qr_path)
+        # Update network and render static promo + QR screen
+        self.network.update()
+        self.render_idle_screen()
 
     def transition_to_playing(self, song_title: str, stream_url: str) -> None:
         """Transitions state machine to PLAYING state for the requested song."""
         logger.info("Transitioning to PLAYING state: '%s'", song_title)
         self.state = self.STATE_PLAYING
         self.active_song_id = stream_url
+        self.playback_start_time = time.time()
 
-        full_url = self.client.resolve_media_url(stream_url)
-        self.display.start_playback(media_target=full_url)
-        self.client.notify_start_song()
+        # Display loading notification on console
+        self.write_console_status(f"Starting track: {song_title}...")
+
+        # 1. Check local storage first, fallback to HTTP stream
+        local_path = self._find_local_song_file(song_title)
+        target = local_path if local_path else self.client.resolve_media_url(stream_url)
+        logger.info("Selected playback target for '%s': %s", song_title, target)
+
+        # 2. Start hardware video playback
+        started = self.display.start_playback(media_target=target)
+        if not started and local_path:
+            logger.warning("Local playback failed for %s. Retrying via HTTP stream URL...", target)
+            stream_target = self.client.resolve_media_url(stream_url)
+            started = self.display.start_playback(media_target=stream_target)
+
+        # 3. Notify PiKaraoke so backend sets is_playing = True
+        self.client.notify_start_song(stream_url=stream_url)
+
+        if not started:
+            logger.error("Failed to start playback for: %s", song_title)
+            # Revert to idle without calling notify_end_song so queue is not silently dropped
+            self.transition_to_idle()
 
     def step(self) -> None:
         """Single tick of the orchestrator state machine."""
-        # 1. Check network IP and update QR code if migrated
+        # 1. Check network IP and update console if migrated
         ip_changed, current_url = self.network.update()
         if ip_changed and self.state == self.STATE_IDLE:
-            logger.info("IP address changed (%s). Refreshing idle display with new QR code...", current_url)
-            qr_path = self.network.qr_output_path if os.path.exists(self.network.qr_output_path) else None
-            self.display.start_idle(video_path=self.bg_video, qr_code_path=qr_path)
+            logger.info("IP address changed (%s). Refreshing idle console screen...", current_url)
+            self.render_idle_screen()
 
         # 2. Query PiKaraoke now_playing status
         now_playing_data = self.client.get_now_playing()
@@ -186,10 +281,15 @@ class OrchestratorDaemon:
                 self.transition_to_playing(song_title, stream_url)
 
         elif self.state == self.STATE_PLAYING:
-            # Check if VLC has exited (song completed)
+            # Check if MPV process is still running
             if not self.display.is_running():
-                logger.info("Playback process exited. Notifying PiKaraoke track completion.")
-                self.client.notify_end_song(reason="complete")
+                duration = time.time() - getattr(self, "playback_start_time", 0)
+                logger.info("Playback process exited after %.1fs.", duration)
+                if duration >= 3.0:
+                    logger.info("Track completed normally. Notifying PiKaraoke.")
+                    self.client.notify_end_song(reason="complete")
+                else:
+                    logger.warning("Playback exited prematurely (%.1fs). Avoiding accidental track drop.", duration)
                 self.transition_to_idle()
                 return
 

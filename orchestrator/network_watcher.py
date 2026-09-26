@@ -123,6 +123,38 @@ class NetworkWatcher:
             logger.exception("Error executing qrencode: %s", e)
             return False
 
+    def get_terminal_qr(self, url: Optional[str] = None) -> str:
+        """
+        Renders an ANSI UTF-8 block QR code for display directly on the Linux console.
+        Uses qrencode -t UTF8 if available, or python qrcode as fallback.
+        """
+        target_url = url or self.current_url or self.get_access_url()
+        if not target_url:
+            return ""
+
+        if shutil.which("qrencode"):
+            try:
+                cmd = ["qrencode", "-t", "UTF8", "-m", "1", target_url]
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                if res.returncode == 0 and res.stdout.strip():
+                    return res.stdout.strip()
+            except Exception as e:
+                logger.debug("Failed to render terminal QR with qrencode: %s", e)
+
+        try:
+            import io
+            import qrcode
+            qr = qrcode.QRCode(border=1)
+            qr.add_data(target_url)
+            qr.make(fit=True)
+            output = io.StringIO()
+            qr.print_ascii(out=output, invert=True)
+            return output.getvalue().strip()
+        except Exception:
+            pass
+
+        return ""
+
     def update(self) -> Tuple[bool, Optional[str]]:
         """
         Checks for IP address or URL changes.

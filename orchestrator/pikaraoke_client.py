@@ -88,18 +88,35 @@ class PiKaraokeClient:
             relative_or_absolute_url = f"/{relative_or_absolute_url}"
         return f"{self.base_url}{relative_or_absolute_url}"
 
-    def notify_start_song(self) -> bool:
+    def notify_start_song(self, stream_url: Optional[str] = None) -> bool:
         """
-        Emits start_song to PiKaraoke via Socket.IO if connected.
+        Notifies PiKaraoke that the track has started.
+        Emits 'start_song' via Socket.IO and performs a lightweight HTTP range probe
+        to guarantee PiKaraoke's backend flags is_playing = True.
         """
+        emitted = False
         if self.connected_socket and self.sio:
             try:
                 self.sio.emit("start_song")
                 logger.debug("Emitted 'start_song' via Socket.IO")
-                return True
+                emitted = True
             except Exception as e:
-                logger.warning("Failed to emit start_song: %s", e)
-        return False
+                logger.warning("Failed to emit start_song via Socket.IO: %s", e)
+
+        if stream_url:
+            full_url = self.resolve_media_url(stream_url)
+            try:
+                req = urllib.request.Request(
+                    full_url,
+                    headers={"User-Agent": "KaraokeZero-Orchestrator/1.0", "Range": "bytes=0-1024"}
+                )
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    logger.debug("Stream probe to %s returned HTTP %d", full_url, resp.status)
+                    emitted = True
+            except Exception as e:
+                logger.debug("Stream probe note: %s", e)
+
+        return emitted
 
     def notify_end_song(self, reason: str = "complete") -> bool:
         """

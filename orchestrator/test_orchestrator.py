@@ -62,6 +62,19 @@ class TestNetworkWatcher(unittest.TestCase):
         self.assertFalse(changed2)
         mock_gen.assert_not_called()
 
+    @patch("shutil.which", return_value="/usr/bin/qrencode")
+    @patch("subprocess.run")
+    def test_get_terminal_qr(self, mock_run, mock_which):
+        mock_run.return_value = MagicMock(returncode=0, stdout="████\n████", stderr="")
+        watcher = NetworkWatcher(port=5555)
+        qr = watcher.get_terminal_qr("http://192.168.1.50:5555")
+        self.assertEqual(qr, "████\n████")
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd[0], "qrencode")
+        self.assertIn("-t", cmd)
+        self.assertIn("UTF8", cmd)
+
 
 class TestDisplayManager(unittest.TestCase):
 
@@ -193,13 +206,13 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
         self.assertEqual(mock_healthy.call_count, 2)
 
     @patch.object(NetworkWatcher, "update", return_value=(False, "http://192.168.1.100:5555"))
-    @patch.object(DisplayManager, "start_idle", return_value=True)
+    @patch.object(OrchestratorDaemon, "render_idle_screen")
     @patch.object(PiKaraokeClient, "get_now_playing", return_value=None)
-    def test_boot_to_idle_transition(self, mock_np, mock_idle, mock_net):
+    def test_boot_to_idle_transition(self, mock_np, mock_render, mock_net):
         self.assertEqual(self.daemon.state, OrchestratorDaemon.STATE_BOOT)
         self.daemon.step()
         self.assertEqual(self.daemon.state, OrchestratorDaemon.STATE_IDLE)
-        mock_idle.assert_called_once()
+        mock_render.assert_called_once()
 
     @patch.object(NetworkWatcher, "update", return_value=(False, "http://192.168.1.100:5555"))
     @patch.object(DisplayManager, "start_playback", return_value=True)
@@ -217,22 +230,23 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
 
         self.assertEqual(self.daemon.state, OrchestratorDaemon.STATE_PLAYING)
         mock_play.assert_called_once_with(media_target="http://127.0.0.1:5555/stream/nirvana.mp4")
-        mock_start.assert_called_once()
+        mock_start.assert_called_once_with(stream_url="/stream/nirvana.mp4")
 
     @patch.object(NetworkWatcher, "update", return_value=(False, "http://192.168.1.100:5555"))
     @patch.object(DisplayManager, "is_running", return_value=False)
-    @patch.object(DisplayManager, "start_idle", return_value=True)
+    @patch.object(OrchestratorDaemon, "render_idle_screen")
     @patch.object(PiKaraokeClient, "notify_end_song", return_value=True)
     @patch.object(PiKaraokeClient, "get_now_playing", return_value=None)
-    def test_song_completion_to_idle_transition(self, mock_np, mock_notify_end, mock_idle, mock_running, mock_net):
+    def test_song_completion_to_idle_transition(self, mock_np, mock_notify_end, mock_render, mock_running, mock_net):
         self.daemon.state = OrchestratorDaemon.STATE_PLAYING
         self.daemon.active_song_id = "/stream/nirvana.mp4"
+        self.daemon.playback_start_time = 0
 
         self.daemon.step()
 
         self.assertEqual(self.daemon.state, OrchestratorDaemon.STATE_IDLE)
         mock_notify_end.assert_called_once_with(reason="complete")
-        mock_idle.assert_called_once()
+        mock_render.assert_called_once()
 
 
 if __name__ == "__main__":
