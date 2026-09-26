@@ -100,7 +100,7 @@ trap cleanup_logging EXIT INT TERM
 exec > >(tee "${LOG_FILE}") 2>&1
 
 echo -e "${BOLD}===================================================================${RESET}"
-echo -e "${BOLD}🎤⚡ KaraokeZero Appliance - Automated Provisioning Engine${RESET}"
+echo -e "${BOLD}KaraokeZero Appliance - Automated Provisioning Engine${RESET}"
 echo -e "${BOLD}===================================================================${RESET}"
 log_info "Logging session output to: ${LOG_FILE}"
 
@@ -172,7 +172,7 @@ if [[ -z "${STORAGE_TYPE}" ]]; then
 
     echo ""
     echo -e "${RED}${BOLD}========================================================================${RESET}"
-    echo -e "${YELLOW}${BOLD}⚠️  STORAGE NOTICE & FLASH MEMORY WEAR WARNING ⚠️${RESET}"
+    echo -e "${YELLOW}${BOLD}STORAGE NOTICE & FLASH MEMORY WEAR WARNING${RESET}"
     echo -e "${RED}${BOLD}========================================================================${RESET}"
     echo -e "KaraokeZero routes the persistent SQLite database, YouTube download"
     echo -e "buffers (yt-dlp), and the media library to your chosen storage."
@@ -554,7 +554,7 @@ fi
 
 echo ""
 echo -e "${GREEN}${BOLD}===================================================================${RESET}"
-echo -e "${GREEN}${BOLD}🎉 KaraokeZero Appliance Provisioning Complete!${RESET}"
+echo -e "${GREEN}${BOLD}KaraokeZero Appliance Provisioning Complete!${RESET}"
 echo -e "${GREEN}${BOLD}===================================================================${RESET}"
 echo -e "  • ${BOLD}PiKaraoke Web App:${RESET}        http://<pi-ip>:${PIKARAOKE_PORT}"
 echo -e "  • ${BOLD}Captive Wi-Fi Portal:${RESET}     http://<pi-ip>:${WIFI_MANAGER_PORT}"

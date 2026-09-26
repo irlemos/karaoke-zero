@@ -1,96 +1,113 @@
-# KaraokeZero - WiFi Manager
+# Wi-Fi Manager
 
-Dynamic, ultra-lightweight captive portal for headless Wi-Fi network provisioning, optimized specifically for **Raspberry Pi Zero W** (512MB RAM, ARMv6).
+The Wi-Fi Manager provides headless network onboarding for KaraokeZero. When operating single-board computers in changing environments—such as rental venues, parties, or friend's homes—reconfiguring network credentials without a keyboard and monitor attached is a common hurdle. 
+
+This component runs a lightweight web service that allows any smartphone connected to the device to scan for local Wi-Fi networks and submit credentials.
 
 ---
 
-## 1. Architecture & Network Flow
+## 1. Connection Lifecycle & Priority Model
 
-The `WiFi Manager` implements the network orchestration flow specified in `karaokezero-manifest.json`:
+KaraokeZero uses NetworkManager (`nmcli`) to handle network transitions using a two-tier priority model:
 
 ```
 +-------------------------------------------------------------+
-|                     RASPBERRY PI BOOT                       |
+|                     SYSTEM STARTUP                          |
 +-------------------------------------------------------------+
-                              |
-                              v
+                               |
+                               v
     +---------------------------------------------------+
-    | NetworkManager searches for known connections.    |
-    | - Admin Mobile Hotspot: Priority 100              |
-    | - Venue Wi-Fi (registered): Priority 50           |
+    | NetworkManager scans for known wireless profiles: |
+    | - Admin Fallback Hotspot:  Priority 100           |
+    | - Venue Wi-Fi (Saved):     Priority 50            |
     +---------------------------------------------------+
-                              |
-        +---------------------+---------------------+
-        | Venue Wi-Fi not found                     | Venue Wi-Fi available
-        v                                           v
+                               |
+         +---------------------+---------------------+
+         | Venue network not found                   | Venue network reachable
+         v                                           v
 +-----------------------------+           +-----------------------------+
-| Connects to Admin Hotspot   |           | Connects directly to Venue  |
-| (Priority 100)              |           | Wi-Fi (Priority 50)         |
+| Connects to Admin Hotspot   |           | Associates with Venue Wi-Fi |
+| (Priority 100)              |           | (Priority 50)               |
 +-----------------------------+           +-----------------------------+
-        |                                           |
-        v                                           v
+         |                                           |
+         v                                           v
 +-----------------------------+           +-----------------------------+
-| User opens on smartphone:   |           | PiKaraoke is accessible on  |
-| http://<pi-ip>:8888         |           | the local venue network IP  |
+| Administrator opens:        |           | PiKaraoke is accessible on  |
+| http://<pi-ip>:8888         |           | the venue network IP        |
 +-----------------------------+           +-----------------------------+
-        |
-        v
+         |
+         v
 +-------------------------------------------------------+
-| 1. Flask app scans networks via:                      |
+| 1. Web client fetches available SSIDs via:            |
 |    nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY dev wifi   |
-| 2. User selects the Venue Wi-Fi and inputs password   |
-| 3. App triggers connection and sets Priority 50       |
-| 4. Pi automatically migrates to the venue's network   |
+| 2. User selects SSID and submits credentials          |
+| 3. Service provisions connection with Priority 50     |
+| 4. NetworkManager switches to the venue Wi-Fi         |
 +-------------------------------------------------------+
 ```
 
----
-
-## 2. Embedded & Low-Resource Features
-
-- **Minimal Memory Footprint:** Built exclusively on Flask and the Python standard library. Typically consumes ~15–20MB of RAM.
-- **100% Offline / Zero CDN Dependencies:** When connected to a local hotspot without active cellular data or external internet access, the web interface loads instantly without blocking on external CDN assets (no Google Fonts, Bootstrap CDN, etc.).
-- **Security:** NetworkManager commands are executed using safe argument arrays (`shell=False`), eliminating any risk of command injection via SSID or password payloads.
-- **BSSID Deduplication:** Automatically groups multiple APs broadcasting the same SSID (common in mesh/repeater venue networks) and retains the strongest signal entry.
+### Connection Strategy
+1. **Fallback Admin Hotspot (Priority 100):** If no recognized venue Wi-Fi is reachable, the device connects to an administrator's mobile hotspot. This ensures the appliance remains reachable for configuration anywhere.
+2. **Venue Wi-Fi (Priority 50):** When credentials for the local venue network are submitted through the web UI, NetworkManager creates or updates a connection profile with priority 50.
+3. **Seamless Migration:** Once the venue network connects, the device receives an IP address on the local network, allowing attendees to access PiKaraoke directly.
 
 ---
 
-## 3. API Endpoints
+## 2. Design Considerations & Implementation Details
 
-| Route | Method | Description |
+- **Zero Remote Dependencies:** The onboarding web interface contains no external CDN references. All styles and scripts are embedded directly into the HTML template. If the device connects to an access point with no active internet connection, the UI loads immediately without waiting for timed-out external asset requests.
+- **Process Memory Footprint:** The web service is implemented with Flask and standard library modules, typically consuming between 15 MB and 20 MB of resident memory.
+- **Safe Command Execution:** Network operations interact with `nmcli` via argument arrays with `shell=False`. This eliminates the risk of command injection vulnerabilities from crafted SSID or passphrase inputs.
+- **BSSID Deduplication:** Venue environments often deploy multi-node mesh networks or range extenders broadcasting identical SSIDs. The parser aggregates duplicate SSIDs and presents only the entry with the strongest signal to simplify user selection.
+
+---
+
+## 3. HTTP API Reference
+
+| Endpoint | Method | Description |
 | :--- | :--- | :--- |
-| `/` | `GET` | Mobile-first web interface for smartphones. |
-| `/api/status` | `GET` | Returns active connection state (`ssid`, `ip_address`, `device`, `signal`). |
-| `/api/scan` | `GET` | Scans available Wi-Fi networks via `nmcli`. Supports `?rescan=true`. |
-| `/api/connect` | `POST` | Initiates connection to `{ "ssid": "...", "password": "..." }` and sets autoconnect-priority 50. |
-| `/api/connect/status` | `GET` | Polls the status of the background connection worker (`idle`, `connecting`, `success`, `error`). |
+| `/` | `GET` | Serves the responsive network configuration web interface. |
+| `/api/status` | `GET` | Returns active connection details: `{ "ssid": "...", "ip_address": "...", "device": "...", "signal": 85 }`. |
+| `/api/scan` | `GET` | Triggers a wireless scan via `nmcli`. Supports optional `?rescan=true` to force a hardware rescan. |
+| `/api/connect` | `POST` | Dispatches an asynchronous connection worker for JSON payload: `{ "ssid": "...", "password": "..." }`. |
+| `/api/connect/status` | `GET` | Returns the state of the background connection worker: `idle`, `connecting`, `success`, or `error`. |
 
 ---
 
-## 4. Local Execution & Testing
+## 4. Local Execution & Deployment
 
-### Prerequisites
-On Debian / Raspberry Pi OS Lite:
+### Package Dependencies
+On Debian or Raspberry Pi OS:
+
 ```bash
 sudo apt update
 sudo apt install -y python3-flask network-manager
 ```
 
-### Running in Development:
+### Running Manually
+For development and local testing:
+
 ```bash
 python3 app.py
 ```
-By default, the server binds to `http://0.0.0.0:8888`.
-To customize the host or port:
+
+By default, the server binds to `0.0.0.0:8888`. Environment variables can override default network bindings:
+
 ```bash
 PORT=8080 HOST=127.0.0.1 python3 app.py
 ```
 
-### Systemd Service Deployment
-Copy the provided unit file from `systemd/` into systemd:
+### Systemd Service Configuration
+To run the Wi-Fi Manager as a persistent system service:
+
 ```bash
 sudo cp ../systemd/wifi_manager.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable wifi_manager.service
 sudo systemctl start wifi_manager.service
+```
+
+Check status and operational logs:
+```bash
+journalctl -u wifi_manager.service -f
 ```

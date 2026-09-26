@@ -1,17 +1,19 @@
-# KaraokeZero - Display & Queue Orchestrator Daemon
+# Display & Queue Orchestrator Daemon
 
-The **Orchestrator Daemon** is the display and playback management engine for KaraokeZero, specifically engineered for resource-constrained, single-core embedded devices like the **Raspberry Pi Zero W** (512MB RAM, ARMv6) running **Raspberry Pi OS Lite** (32-bit Bookworm or newer, headless).
+The orchestrator daemon bridges the headless PiKaraoke backend and the physical video output. It is engineered specifically for resource-constrained systems such as the Raspberry Pi Zero W (ARMv6, single-core 1.0 GHz, 512 MB RAM) running Raspberry Pi OS Lite (32-bit Bookworm or newer).
 
 ---
 
-## 1. Problem Statement & Philosophy
+## 1. Technical Context & Design Rationale
 
-Upstream PiKaraoke utilizes a web-based splash screen (`/splash`) that requires a modern web browser with HTML5 video and JavaScript support. On low-spec hardware:
-- Launching Chromium in kiosk mode consumes **250MB–400MB of RAM** and saturates the single-core CPU at 100%, causing thermal throttling, audio underruns, and Out-Of-Memory (OOM) kernel panics.
-- Running headless OS Lite means no X11 or Wayland display server is available.
+Upstream PiKaraoke ships with a web-based splash screen (`/splash`) that displays the current song title, upcoming queue entries, and connection instructions. In standard deployments, this interface runs inside a local web browser in kiosk mode.
 
-**The Solution:**
-Module 2 acts as a **Zero-GUI Hardware-Accelerated Display Client**. It monitors the PiKaraoke queue directly over local REST/WebSocket APIs and orchestrates video rendering straight to the display using **VLC CLI (`cvlc`)** with Direct Rendering Manager / Kernel Mode Setting hardware acceleration (`--vout drm`).
+On low-memory single-board computers, this approach is not practical:
+- Modern web engines like Chromium consume between 250 MB and 400 MB of RAM in kiosk mode. On a 512 MB system, this leaves little headroom for the Linux kernel, Python services, and media decoding buffers, frequently triggering out-of-memory (OOM) kills.
+- Sustained browser CPU utilization causes thermal throttling and frame drops on single-core ARMv6 processors.
+- Minimal server distributions like Raspberry Pi OS Lite do not include X11 or Wayland display servers.
+
+The orchestrator bypasses the browser entirely. It runs as a lightweight headless daemon that polls PiKaraoke's local API and coordinates video playback directly onto the display framebuffer via **VLC CLI (`cvlc`)** using Linux Direct Rendering Manager / Kernel Mode Setting hardware acceleration (`--vout drm`).
 
 ---
 
@@ -21,38 +23,40 @@ Module 2 acts as a **Zero-GUI Hardware-Accelerated Display Client**. It monitors
                      +---------------------------------------+
                      |         Raspberry Pi Zero W           |
                      |   PiKaraoke Core (--headless) :5555   |
-                     |   Module 2 Orchestrator Daemon        |
+                     |   Orchestrator Daemon                 |
                      +---------------------------------------+
-                        |                                 |
-                 USB 2.0 (OTG)                     Mini-HDMI Port
-                        |                                 |
-                        v                                 v
-        +-------------------------------+     +-----------------------+
-        | External USB Hard Drive       |     | Mini-HDMI to VGA      |
-        | /mnt/external_hd/karaoke      |     | Active Adapter        |
-        | - Persistent SQLite DB        |     +-----------------------+
-        | - Song library / downloads    |         |               |
-        +-------------------------------+      VGA Video       3.5mm P2 Audio
-                                                  |            (GPU Passthrough)
-                                                  v               |
-                                           +-------------+        v
-                                           | USB-Powered |    +----------------+
-                                           | LED Monitor |    | External Multi-|
-                                           | (Direct FB) |    | Channel Mixer  |
-                                           +-------------+    +----------------+
-                                                                  ^          |
-                                                                  |          v
-                                                            Microphones   Speakers
-                                                            (Zero Lag)
+                         |                                 |
+                  USB 2.0 (OTG)                     Mini-HDMI Port
+                         |                                 |
+                         v                                 v
+         +-------------------------------+     +-----------------------+
+         | External Storage              |     | Mini-HDMI to VGA      |
+         | /mnt/external_hd/karaoke      |     | Active Adapter        |
+         | - SQLite persistent DB        |     +-----------------------+
+         | - Song library / downloads    |         |               |
+         +-------------------------------+      VGA Video       3.5mm Analog Audio
+                                                   |            (GPU Passthrough)
+                                                   v               |
+                                            +-------------+        v
+                                            | Monitor /   |    +----------------+
+                                            | TV Screen   |    | External Multi-|
+                                            | (Direct FB) |    | Channel Mixer  |
+                                            +-------------+    +----------------+
+                                                                   ^          |
+                                                                   |          v
+                                                             Microphones   Speakers
+                                                             (Pure Analog)
 ```
 
-1. **Video Decoding:** Direct rendering via Direct Rendering Manager / KMS (`--vout drm`), bypassing X11/Wayland completely.
-2. **Audio Decoding:** Analog stereo sound extracted natively through the Mini-HDMI to VGA adapter's 3.5mm P2 jack, routed straight into the external analog mixer.
-3. **Microphones:** Connected directly to the external mixer, completely isolated from software processing to guarantee **zero vocal latency**.
+1. **Video Decoding:** Direct rendering via Direct Rendering Manager (`--vout drm`), bypassing window managers and X11/Wayland layers.
+2. **Audio Decoding:** Digital audio passes through HDMI to the active Mini-HDMI to VGA adapter. The adapter's built-in DAC outputs line-level stereo over a 3.5 mm jack directly into an external analog mixer.
+3. **Microphone Isolation:** Microphones connect directly to the external mixer. Because vocal signals never enter the Raspberry Pi's software stack, there is zero processing latency.
 
 ---
 
-## 3. Finite State Machine (FSM) Lifecycle
+## 3. Playback Lifecycle & State Machine
+
+The orchestrator operates as a deterministic finite state machine (FSM):
 
 ```
        +-------------------------------------------------------+
@@ -69,87 +73,84 @@ Module 2 acts as a **Zero-GUI Hardware-Accelerated Display Client**. It monitors
                                   v
 +----->+-------------------------------------------------------+
 |      |                      IDLE_STATE                       |
-|      |  - cvlc loops idle_loop.mp4 on the framebuffer        |
-|      |  - QR Code logo overlaid at bottom-right corner       |
-|      |  - Polls GET /now_playing and listens for events      |
+|      |  - Loops background video via cvlc                    |
+|      |  - Overlays QR code at bottom-right via logo filter   |
+|      |  - Monitors GET /api/queue for upcoming tracks        |
 |      +-------------------------------------------------------+
 |                                 |
-|                                 | Track detected in queue
+|                                 | Track present in queue
 |                                 v
 |      +-------------------------------------------------------+
 |      |                   PREPARE_PLAYBACK                    |
 |      |  - Terminates idle cvlc instance                      |
-|      |  - Resolves /stream/<id>.mp4 media URL                |
+|      |  - Resolves media stream endpoint                     |
 |      +-------------------------------------------------------+
 |                                 |
 |                                 v
 |      +-------------------------------------------------------+
 |      |                     PLAYING_STATE                     |
 |      |  - Spawns cvlc with --vout drm --play-and-exit        |
-|      |  - Emits start_song to PiKaraoke                      |
-|      |  - Syncs pause/resume state with mobile clients       |
+|      |  - Signals track start to PiKaraoke                   |
+|      |  - Synchronizes pause/skip commands with clients      |
 |      +-------------------------------------------------------+
 |                                 |
-|                                 | Track ends (cvlc exits) OR Skip requested
+|                                 | Track finishes or user skips
 |                                 v
 |      +-------------------------------------------------------+
 |      |                    FINALIZE_TRACK                     |
-|      |  - Ensures process termination & releases GPU memory  |
-|      |  - Emits end_song('complete') to advance the queue    |
+|      |  - Confirms process termination and frees GPU memory  |
+|      |  - Emits end_song completion signal to advance queue  |
 +---------------------------------+
 ```
 
 ---
 
-## 4. Components & File Breakdown
+## 4. Module Architecture
 
-| File | Purpose |
+| Source File | Responsibility |
 | :--- | :--- |
-| `orchestrator.py` | Main daemon entrypoint, CLI parser, signal handler, and FSM event loop. |
-| `display_manager.py` | Subprocess manager for `cvlc` hardware decoding, OSD suppression, and logo overlay. |
-| `network_watcher.py` | Detects network IP address and generates `/tmp/qrcode.png` via `qrencode`. |
-| `pikaraoke_client.py` | Hybrid client interfacing with PiKaraoke via REST polling and real-time Socket.IO events. |
-| `orchestrator.service` | Systemd service unit with strict memory (`64M`) and CPU (`25%`) limits. |
-| `test_orchestrator.py` | Complete unit test suite verifying FSM transitions, argument building, and mocking. |
+| `orchestrator.py` | Daemon entrypoint, command-line parsing, signal handling, and state machine loop. |
+| `display_manager.py` | Manages the `cvlc` subprocess lifecycle, DRM arguments, OSD suppression, and logo overlay filters. |
+| `network_watcher.py` | Resolves active IP addresses on the target interface and generates `/tmp/qrcode.png` using `qrencode`. |
+| `pikaraoke_client.py` | Client interface handling both HTTP REST polling and WebSocket events against the local PiKaraoke server. |
+| `test_orchestrator.py` | Unit test suite covering transition handling, subprocess argument generation, and mocking. |
 
 ---
 
-## 5. Embedded Constraints & Optimizations
+## 5. Resource Management on Embedded Targets
 
-- **Memory Footprint:** The Python daemon consumes ~**12MB–18MB RAM**. VLC uses ~**15MB–25MB RAM** during playback. Total appliance footprint stays well under 45MB RAM.
-- **Process Recycling:** VLC processes are terminated and recreated between tracks, completely flushing memory buffers and preventing VideoCore IV handle leaks.
-- **Zero Disk Wear:** Ephemeral assets (`/tmp/qrcode.png`, `/tmp/vlc_rc.sock`) reside in Linux `tmpfs` (RAM), preserving internal MicroSD card longevity.
+- **Process Recycling:** Video decoders are prone to residual memory retention and handle leaks over long sessions. Rather than keeping a single player instance alive, the orchestrator cleanly terminates and restarts the `cvlc` process between tracks, ensuring memory allocations and GPU framebuffers are reset.
+- **Volatile Storage (`tmpfs`):** Ephemeral files—such as dynamic QR codes (`/tmp/qrcode.png`) and the VLC control socket (`/tmp/vlc_rc.sock`)—are stored in RAM-backed temporary directories (`/tmp`). This prevents unnecessary flash write cycles on the host microSD card.
+- **Memory Footprint:** The Python daemon typically uses between 12 MB and 18 MB of resident memory (RSS). VLC consumes between 15 MB and 25 MB during active playback. Total memory consumption across both components remains well below 45 MB.
 
 ---
 
-## 6. Installation & Deployment
+## 6. Configuration & Deployment
 
-### Prerequisites
-On Raspberry Pi OS Lite (Bullseye):
-```bash
-sudo apt update
-sudo apt install -y vlc qrencode python3
-```
+### Manual Execution
+For testing and development:
 
-### Running Manually:
 ```bash
 python3 orchestrator.py --pikaraoke-url http://127.0.0.1:5555 --interface wlan0
 ```
 
-### Command-Line Arguments:
-| Argument | Environment Variable | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `--pikaraoke-url` | `PIKARAOKE_URL` | `http://127.0.0.1:5555` | Base URL of local PiKaraoke server. |
-| `--interface` | `NET_INTERFACE` | `wlan0` | Network interface to query for IP address. |
-| `--port` | `PORT` | `5555` | PiKaraoke web port encoded into the QR code. |
-| `--bg-video` | `BG_VIDEO` | `assets/idle_loop.mp4` | Path to custom idle background video file. |
-| `--vout` | `VLC_VOUT` | `drm` | VLC video output engine (`drm` for RPi Bookworm DRM/KMS). |
-| `--aout` | `VLC_AOUT` | `alsa` | VLC audio output plugin (`alsa`). |
-| `--alsa-device` | `ALSA_DEVICE` | `default` | ALSA audio device name. |
-| `--poll-interval` | `POLL_INTERVAL` | `1.0` | Status poll frequency in seconds. |
-| `--no-rc` | - | `False` | Disable VLC remote control Unix socket. |
+### CLI Parameters & Environment Variables
 
-### Systemd Service Setup:
+| Argument | Environment Variable | Default | Purpose |
+| :--- | :--- | :--- | :--- |
+| `--pikaraoke-url` | `PIKARAOKE_URL` | `http://127.0.0.1:5555` | Base address of the local PiKaraoke service. |
+| `--interface` | `NET_INTERFACE` | `wlan0` | Network interface to inspect for the active IP address. |
+| `--port` | `PORT` | `5555` | Port number encoded into the attendee QR code. |
+| `--bg-video` | `BG_VIDEO` | `assets/idle_loop.mp4` | Path to the looping background video file. |
+| `--vout` | `VLC_VOUT` | `drm` | Video output module (`drm` for KMS/DRM framebuffer). |
+| `--aout` | `VLC_AOUT` | `alsa` | Audio output module. |
+| `--alsa-device` | `ALSA_DEVICE` | `default` | ALSA audio device identifier. |
+| `--poll-interval` | `POLL_INTERVAL` | `1.0` | Queue polling interval in seconds. |
+| `--no-rc` | - | `False` | Disables the VLC remote control Unix socket. |
+
+### Systemd Service Management
+The orchestrator is managed by systemd with explicit memory and CPU constraints:
+
 ```bash
 sudo cp ../systemd/orchestrator.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -157,11 +158,17 @@ sudo systemctl enable orchestrator.service
 sudo systemctl start orchestrator.service
 ```
 
+Inspect service logs:
+```bash
+journalctl -u orchestrator.service -f
+```
+
 ---
 
 ## 7. Running Tests
 
-Execute the automated unit test suite:
+Run the test suite with Python's standard unittest runner:
+
 ```bash
 python3 -m unittest discover -s . -p "test_*.py"
 ```
