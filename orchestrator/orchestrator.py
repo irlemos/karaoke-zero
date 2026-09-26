@@ -43,9 +43,9 @@ class OrchestratorDaemon:
         interface: str = "wlan0",
         port: int = 5555,
         bg_video_path: Optional[str] = None,
-        vout: str = "drm",
+        vout: str = "gpu",
         aout: str = "alsa",
-        alsa_device: str = "default",
+        alsa_device: str = "alsa/plughw:CARD=vc4hdmi,DEV=0",
         qr_output: str = "/tmp/qrcode.png",
         poll_interval: float = 1.0,
         enable_rc: bool = True
@@ -211,11 +211,70 @@ class OrchestratorDaemon:
                     self.display.pause_toggle()
                     self.last_pause_state = is_paused
 
+    def write_console_status(self, message: str, tty_device: str = "/dev/tty1") -> None:
+        """
+        Renders a clean appliance startup status banner to the local framebuffer / tty1 console.
+        This provides clear visual feedback on the HDMI output during boot before the display
+        engine takes over.
+        """
+        ip = self.network.get_ip_address()
+        web_url = f"http://{ip}:{self.network.port}" if ip else f"http://127.0.0.1:{self.network.port}"
+        portal_url = f"http://{ip}:8888" if ip else "http://192.168.4.1:8888"
+
+        banner = [
+            "",
+            "  ================================================================",
+            "                   KARAOKE-ZERO APPLIANCE BOOT                    ",
+            "  ================================================================",
+            "   Hardware:   Raspberry Pi Zero W (ARMv6, VideoCore IV GPU)      ",
+            "   Display:    MPV direct DRM/KMS (No X11 / Wayland)              ",
+            "   Audio:      HDMI / 3.5mm P2 Audio (vc4-hdmi via ALSA)          ",
+            f"   Network IP: {ip or 'Connecting to Wi-Fi...'}",
+            f"   PiKaraoke:  {web_url}",
+            f"   Portal:     {portal_url}",
+            "  ----------------------------------------------------------------",
+            f"   Status:     {message}",
+            "  ================================================================",
+            ""
+        ]
+
+        try:
+            with open(tty_device, "w", encoding="utf-8") as f:
+                f.write("\033[2J\033[H\033[?25l" + "\n".join(banner) + "\n")
+                f.flush()
+        except PermissionError:
+            logger.debug("Insufficient permissions to write to %s", tty_device)
+        except Exception as e:
+            logger.debug("Failed to write status to console %s: %s", tty_device, e)
+
+    def wait_for_backend(self, max_wait_seconds: float = 120.0) -> bool:
+        """
+        Waits for PiKaraoke web service to become operational while outputting status
+        to the local HDMI console (/dev/tty1).
+        """
+        logger.info("Awaiting PiKaraoke service readiness at %s...", self.pikaraoke_url)
+        start_time = time.time()
+        while self.running and (time.time() - start_time < max_wait_seconds):
+            if self.client.is_healthy():
+                self.write_console_status("PiKaraoke is ready! Starting display engine...")
+                time.sleep(1.0)
+                return True
+
+            elapsed = int(time.time() - start_time)
+            self.write_console_status(f"Waiting for PiKaraoke to start (elapsed {elapsed}s)...")
+            time.sleep(2.0)
+
+        logger.warning("Timed out waiting for PiKaraoke. Proceeding with startup anyway...")
+        return False
+
     def run(self) -> None:
         """Runs the main orchestrator daemon loop."""
         self.setup_signals()
         self.running = True
         logger.info("Starting KaraokeZero Orchestrator Daemon (Target: %s)", self.pikaraoke_url)
+
+        # Wait for backend and display boot progress on /dev/tty1
+        self.wait_for_backend()
 
         # Setup Socket.IO callbacks and initiate connection
         self.client.on_skip_callback = self.on_skip_event
@@ -269,18 +328,18 @@ def parse_arguments():
     )
     parser.add_argument(
         "--vout",
-        default=os.environ.get("VLC_VOUT", "drm"),
-        help="VLC video output module (default: drm for RPi Bookworm DRM/KMS)"
+        default=os.environ.get("MPV_VOUT", "gpu"),
+        help="MPV video output module (default: gpu for RPi VideoCore IV DRM/KMS)"
     )
     parser.add_argument(
         "--aout",
-        default=os.environ.get("VLC_AOUT", "alsa"),
-        help="VLC audio output module (default: alsa)"
+        default=os.environ.get("MPV_AOUT", "alsa"),
+        help="MPV audio output module (default: alsa)"
     )
     parser.add_argument(
         "--alsa-device",
-        default=os.environ.get("ALSA_DEVICE", "default"),
-        help="ALSA audio device (default: default)"
+        default=os.environ.get("ALSA_DEVICE", "alsa/plughw:CARD=vc4hdmi,DEV=0"),
+        help="ALSA audio device (default: alsa/plughw:CARD=vc4hdmi,DEV=0)"
     )
     parser.add_argument(
         "--poll-interval",
@@ -291,7 +350,7 @@ def parse_arguments():
     parser.add_argument(
         "--no-rc",
         action="store_true",
-        help="Disable VLC remote control Unix socket interface"
+        help="Disable MPV IPC Unix domain socket interface"
     )
     return parser.parse_args()
 

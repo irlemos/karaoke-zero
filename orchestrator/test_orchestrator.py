@@ -67,9 +67,9 @@ class TestDisplayManager(unittest.TestCase):
 
     def setUp(self):
         self.display = DisplayManager(
-            vout="drm",
+            vout="gpu",
             aout="alsa",
-            alsa_device="default",
+            alsa_device="alsa/plughw:CARD=vc4hdmi,DEV=0",
             enable_rc=False
         )
 
@@ -88,13 +88,13 @@ class TestDisplayManager(unittest.TestCase):
         self.assertEqual(self.display.current_mode, "idle")
 
         cmd = mock_popen.call_args[0][0]
-        self.assertEqual(cmd[0], "cvlc")
-        self.assertIn("--loop", cmd)
-        self.assertIn("--vout", cmd)
-        self.assertIn("drm", cmd)
-        self.assertIn("--sub-source", cmd)
-        self.assertIn("logo", cmd)
-        self.assertIn("/tmp/qrcode.png", cmd)
+        self.assertEqual(cmd[0], "mpv")
+        self.assertIn("--vo=gpu", cmd)
+        self.assertIn("--gpu-context=drm", cmd)
+        self.assertIn("--hwdec=v4l2m2m-copy", cmd)
+        self.assertIn("--profile=fast", cmd)
+        self.assertIn("--no-audio", cmd)
+        self.assertIn("--loop-file=inf", cmd)
         self.assertEqual(cmd[-1], "/opt/assets/idle.mp4")
 
     @patch("subprocess.Popen")
@@ -108,16 +108,22 @@ class TestDisplayManager(unittest.TestCase):
         self.assertEqual(self.display.current_mode, "playing")
 
         cmd = mock_popen.call_args[0][0]
-        self.assertEqual(cmd[0], "cvlc")
-        self.assertIn("--play-and-exit", cmd)
-        self.assertIn("--aout", cmd)
-        self.assertIn("alsa", cmd)
+        self.assertEqual(cmd[0], "mpv")
+        self.assertIn("--vo=gpu", cmd)
+        self.assertIn("--ao=alsa", cmd)
+        self.assertIn("--audio-device=alsa/plughw:CARD=vc4hdmi,DEV=0", cmd)
+        self.assertIn("--audio-samplerate=48000", cmd)
         self.assertEqual(cmd[-1], "http://127.0.0.1:5555/stream/song.mp4")
 
     def test_stop_graceful_and_escalate(self):
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
-        mock_proc.wait.side_effect = [subprocess.TimeoutExpired(cmd="cvlc", timeout=1.0), None]
+        # First wait times out (IPC quit), second wait times out (SIGTERM), third succeeds after SIGKILL
+        mock_proc.wait.side_effect = [
+            subprocess.TimeoutExpired(cmd="mpv", timeout=1.0),
+            subprocess.TimeoutExpired(cmd="mpv", timeout=1.0),
+            None
+        ]
         self.display.process = mock_proc
 
         self.display.stop(timeout=1.0)
@@ -156,6 +162,17 @@ class TestPiKaraokeClient(unittest.TestCase):
         abs_url = self.client.resolve_media_url("http://example.com/audio.mp3")
         self.assertEqual(abs_url, "http://example.com/audio.mp3")
 
+    @patch("urllib.request.urlopen")
+    def test_is_healthy_success(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+        self.assertTrue(self.client.is_healthy())
+
+    @patch("urllib.request.urlopen", side_effect=Exception("Connection refused"))
+    def test_is_healthy_failure(self, mock_urlopen):
+        self.assertFalse(self.client.is_healthy())
+
 
 class TestOrchestratorDaemonFSM(unittest.TestCase):
 
@@ -165,6 +182,15 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
             poll_interval=0.1,
             enable_rc=False
         )
+
+    @patch.object(NetworkWatcher, "get_ip_address", return_value="192.168.1.100")
+    @patch.object(PiKaraokeClient, "is_healthy", side_effect=[False, True])
+    @patch("builtins.open")
+    def test_wait_for_backend(self, mock_open, mock_healthy, mock_ip):
+        self.daemon.running = True
+        ready = self.daemon.wait_for_backend(max_wait_seconds=5.0)
+        self.assertTrue(ready)
+        self.assertEqual(mock_healthy.call_count, 2)
 
     @patch.object(NetworkWatcher, "update", return_value=(False, "http://192.168.1.100:5555"))
     @patch.object(DisplayManager, "start_idle", return_value=True)

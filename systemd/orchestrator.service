@@ -8,16 +8,16 @@ Wants=pikaraoke.service
 Type=simple
 User=karaoke
 Group=karaoke
-SupplementaryGroups=video audio render input
+SupplementaryGroups=video audio render input tty
 WorkingDirectory=/opt/karaokezero/orchestrator
 ExecStart=/usr/bin/python3 /opt/karaokezero/orchestrator/orchestrator.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 Environment=PIKARAOKE_URL=http://127.0.0.1:5555
-Environment=VLC_VOUT=drm
-Environment=VLC_AOUT=alsa
-Environment=ALSA_DEVICE=default
+Environment=MPV_VOUT=gpu
+Environment=MPV_AOUT=alsa
+Environment=ALSA_DEVICE=alsa/plughw:CARD=vc4hdmi,DEV=0
 
 [Install]
 WantedBy=multi-user.target

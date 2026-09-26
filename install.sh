@@ -320,6 +320,7 @@ log_info "Installing core system packages..."
 
 PKGS=(
     network-manager
+    mpv
     vlc
     qrencode
     ffmpeg
@@ -356,10 +357,10 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     apt-get update -y
     apt-get install -y "${PKGS[@]}"
 
-    # Ensure application runtime user has hardware access permissions (DRM, framebuffer, audio, input)
+    # Ensure application runtime user has hardware access permissions (DRM, framebuffer, audio, input, tty)
     if id "${APP_USER}" >/dev/null 2>&1; then
         log_info "Configuring hardware access groups for user '${APP_USER}'..."
-        usermod -a -G video,audio,render,input "${APP_USER}" 2>/dev/null || true
+        usermod -a -G video,audio,render,input,tty "${APP_USER}" 2>/dev/null || true
     fi
 
     # Modern yt-dlp binary installation from official GitHub release
@@ -591,7 +592,7 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         fi
     done
 
-    # Orchestrator Service (Runs as APP_USER to enable direct DRM/KMS hardware playback via VLC)
+    # Orchestrator Service (Runs as APP_USER to enable direct DRM/KMS hardware playback via MPV)
     cat << EOF > /etc/systemd/system/orchestrator.service
 [Unit]
 Description=KaraokeZero Display & Queue Orchestrator Daemon
@@ -603,16 +604,16 @@ Wants=pikaraoke.service
 Type=simple
 User=${APP_USER}
 Group=${APP_USER}
-SupplementaryGroups=video audio render input
+SupplementaryGroups=video audio render input tty
 WorkingDirectory=${KARAOKEZERO_INSTALL_DIR}/orchestrator
 ExecStart=/usr/bin/python3 ${KARAOKEZERO_INSTALL_DIR}/orchestrator/orchestrator.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 Environment=PIKARAOKE_URL=http://127.0.0.1:${PIKARAOKE_PORT}
-Environment=VLC_VOUT=drm
-Environment=VLC_AOUT=alsa
-Environment=ALSA_DEVICE=default
+Environment=MPV_VOUT=gpu
+Environment=MPV_AOUT=alsa
+Environment=ALSA_DEVICE=alsa/plughw:CARD=vc4hdmi,DEV=0
 
 [Install]
 WantedBy=multi-user.target
@@ -647,6 +648,18 @@ TimeoutStopSec=10
 WantedBy=multi-user.target
 EOF
 
+    # Configure dynamic console issue banner with appliance access info
+    cat << EOF > /etc/issue
+===================================================================
+                     KaraokeZero Appliance
+===================================================================
+  • PiKaraoke:   http://\\4:5555
+  • Wi-Fi Setup: http://\\4:8888 (or captive portal)
+===================================================================
+\\s \\r (\\l)
+
+EOF
+
     systemctl daemon-reload
     log_info "Enabling KaraokeZero services for auto-start on boot..."
     systemctl enable wifi_manager.service pikaraoke.service orchestrator.service
@@ -660,7 +673,7 @@ echo -e "  • ${BOLD}PiKaraoke Web App:${RESET}        http://<pi-ip>:${PIKARAO
 echo -e "  • ${BOLD}Captive Wi-Fi Portal:${RESET}     http://<pi-ip>:${WIFI_MANAGER_PORT}"
 echo -e "  • ${BOLD}Song Library Directory:${RESET}   ${SONGS_DIR}"
 echo -e "  • ${BOLD}Persistent Data Storage:${RESET}  ${DATA_DIR}"
-echo -e "  • ${BOLD}Display Engine:${RESET}           cvlc (Direct Rendering Manager / KMS via --vout drm)"
+echo -e "  • ${BOLD}Display Engine:${RESET}           mpv (Direct DRM/KMS VideoCore IV GPU via --vo=gpu)"
 echo -e "  • ${BOLD}Installation Log:${RESET}         ${LOG_FILE}"
 echo -e "${GREEN}${BOLD}===================================================================${RESET}"
 echo ""

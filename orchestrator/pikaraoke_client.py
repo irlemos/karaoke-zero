@@ -67,6 +67,19 @@ class PiKaraokeClient:
 
         return None
 
+    def is_healthy(self) -> bool:
+        """Returns True if the PiKaraoke server is reachable and responding."""
+        url = f"{self.base_url}/"
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "KaraokeZero-Orchestrator/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                return resp.status == 200
+        except Exception:
+            return False
+
     def resolve_media_url(self, relative_or_absolute_url: str) -> str:
         """Converts relative stream endpoints (e.g. /stream/abc.mp4) to full HTTP URLs."""
         if relative_or_absolute_url.startswith("http://") or relative_or_absolute_url.startswith("https://"):

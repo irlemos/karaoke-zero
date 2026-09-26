@@ -3,10 +3,11 @@
 KaraokeZero - Module 2: Orchestrator Daemon
 Display & Hardware-Accelerated Video Rendering Manager
 
-Controls cvlc subprocess instances for framebuffer playback with MMAL hardware decoding,
-logo overlay for QR codes, and zero-GUI overhead.
+Controls mpv subprocess instances for direct DRM/KMS playback with VideoCore IV
+hardware decoding (v4l2m2m-copy), ALSA hardware audio, and zero-GUI overhead.
 """
 
+import json
 import logging
 import os
 import signal
@@ -20,15 +21,15 @@ logger = logging.getLogger("Orchestrator.DisplayManager")
 
 class DisplayManager:
     """
-    Subprocess manager for cvlc hardware-accelerated playback directly on DRM/KMS.
+    Subprocess manager for mpv hardware-accelerated playback directly on DRM/KMS.
     """
 
     def __init__(
         self,
-        vout: str = "drm",
+        vout: str = "gpu",
         aout: str = "alsa",
-        alsa_device: str = "default",
-        rc_socket_path: str = "/tmp/vlc_rc.sock",
+        alsa_device: str = "alsa/plughw:CARD=vc4hdmi,DEV=0",
+        rc_socket_path: str = "/tmp/mpv.sock",
         enable_rc: bool = True
     ):
         self.vout = vout
@@ -41,40 +42,37 @@ class DisplayManager:
         self.current_media: Optional[str] = None
 
     def _build_base_args(self) -> List[str]:
-        """Constructs core low-overhead VLC CLI flags."""
+        """Constructs core low-overhead MPV CLI flags for RPi VideoCore IV GPU."""
         args = [
-            "cvlc",
-            "-I", "dummy",
-            "--fullscreen",
-            "--no-osd",
-            "--no-video-title-show",
+            "mpv",
+            f"--vo={self.vout}",
+            "--gpu-context=drm",
+            "--hwdec=v4l2m2m-copy",
+            "--profile=fast",
+            "--no-terminal",
             "--quiet"
         ]
 
-        if self.vout:
-            args.extend(["--vout", self.vout])
-
         if self.enable_rc:
-            # Clean up stale socket file if present
             if os.path.exists(self.rc_socket_path):
                 try:
                     os.unlink(self.rc_socket_path)
                 except OSError:
                     pass
-            args.extend(["--extraintf", "rc", "--rc-unix", self.rc_socket_path])
+            args.append(f"--input-ipc-server={self.rc_socket_path}")
 
         return args
 
     def is_running(self) -> bool:
-        """Returns True if the VLC subprocess is actively running."""
+        """Returns True if the mpv subprocess is actively running."""
         if self.process is None:
             return False
         return self.process.poll() is None
 
     def stop(self, timeout: float = 2.0) -> None:
         """
-        Gracefully terminates the active VLC process.
-        Escalates from SIGTERM to SIGKILL if the process fails to exit.
+        Gracefully terminates the active mpv process.
+        Escalates from IPC quit to SIGTERM to SIGKILL if the process fails to exit.
         """
         if not self.is_running():
             self.process = None
@@ -83,21 +81,28 @@ class DisplayManager:
             return
 
         proc = self.process
-        logger.debug("Stopping VLC process (PID %d)...", proc.pid)
+        logger.debug("Stopping mpv process (PID %d)...", proc.pid)
+
+        # Try graceful IPC quit first
+        self.send_ipc_command(["quit"])
 
         try:
-            proc.terminate()
             try:
                 proc.wait(timeout=timeout)
-                logger.debug("VLC process (PID %d) terminated gracefully.", proc.pid)
+                logger.debug("mpv process (PID %d) terminated gracefully.", proc.pid)
             except subprocess.TimeoutExpired:
-                logger.warning("VLC process did not terminate within %0.1fs. Sending SIGKILL...", timeout)
-                proc.kill()
-                proc.wait(timeout=1.0)
+                logger.warning("mpv process did not terminate within %0.1fs. Sending SIGTERM...", timeout)
+                proc.terminate()
+                try:
+                    proc.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    logger.warning("mpv process did not terminate after SIGTERM. Sending SIGKILL...")
+                    proc.kill()
+                    proc.wait(timeout=1.0)
         except ProcessLookupError:
             pass
         except Exception as e:
-            logger.error("Error stopping VLC process: %s", e)
+            logger.error("Error stopping mpv process: %s", e)
         finally:
             self.process = None
             self.current_mode = "stopped"
@@ -110,8 +115,8 @@ class DisplayManager:
 
     def start_idle(self, video_path: str, qr_code_path: Optional[str] = None) -> bool:
         """
-        Launches VLC in continuous loop mode playing the idle background video.
-        Optionally overlays the QR code logo on the bottom-right corner.
+        Launches mpv in continuous loop mode playing the idle background video.
+        Uses --no-audio for zero audio-driver overhead during standby.
         """
         self.stop(timeout=1.0)
 
@@ -121,31 +126,18 @@ class DisplayManager:
             return False
 
         args = self._build_base_args()
-        args.append("--loop")
-
-        # Configure VLC logo sub-source filter for QR code overlay
-        # Position 9 = bottom-right in VLC logo position matrix
-        if qr_code_path and os.path.exists(qr_code_path):
-            args.extend([
-                "--sub-source", "logo",
-                "--logo-file", qr_code_path,
-                "--logo-position", "9",
-                "--logo-opacity", "240"
-            ])
-            logger.info("Applying QR code overlay from: %s", qr_code_path)
-
-        if self.aout:
-            args.extend(["--aout", self.aout])
-        if self.alsa_device:
-            args.extend(["--alsa-audio-device", self.alsa_device])
+        args.extend([
+            "--no-audio",
+            "--loop-file=inf"
+        ])
 
         args.append(video_path)
 
-        logger.info("Starting IDLE screen via cvlc (vout=%s)...", self.vout)
+        logger.info("Starting IDLE screen via mpv (vo=%s, gpu-context=drm)...", self.vout)
         logger.debug("Command: %s", " ".join(args))
 
         try:
-            with open("/tmp/cvlc_stderr.log", "w", encoding="utf-8") as log_file:
+            with open("/tmp/mpv_stderr.log", "w", encoding="utf-8") as log_file:
                 self.process = subprocess.Popen(
                     args,
                     stdout=subprocess.DEVNULL,
@@ -154,12 +146,12 @@ class DisplayManager:
                     preexec_fn=os.setsid if hasattr(os, "setsid") else None
                 )
 
-            # Brief check if VLC exited on launch
+            # Brief check if mpv exited on launch
             time.sleep(0.1)
             exit_code = self.process.poll()
             if exit_code is not None:
                 err_snippet = self._read_last_log_snippet()
-                logger.error("VLC idle process exited immediately with code %s. Detail: %s", exit_code, err_snippet)
+                logger.error("mpv idle process exited immediately with code %s. Detail: %s", exit_code, err_snippet)
                 self.process = None
                 self.current_mode = "stopped"
                 return False
@@ -168,7 +160,7 @@ class DisplayManager:
             self.current_media = video_path
             return True
         except Exception as e:
-            logger.exception("Failed to spawn idle VLC process: %s", e)
+            logger.exception("Failed to spawn idle mpv process: %s", e)
             self.process = None
             self.current_mode = "stopped"
             return False
@@ -176,25 +168,23 @@ class DisplayManager:
     def start_playback(self, media_target: str) -> bool:
         """
         Launches hardware-accelerated playback for the active song.
-        Plays once and exits immediately (--play-and-exit).
+        Routes audio directly to ALSA (HDMI / P2 adapter) and exits on completion.
         """
         self.stop(timeout=1.0)
 
         args = self._build_base_args()
-        args.append("--play-and-exit")
+        args.extend([
+            f"--ao={self.aout}",
+            f"--audio-device={self.alsa_device}",
+            "--audio-samplerate=48000",
+            media_target
+        ])
 
-        if self.aout:
-            args.extend(["--aout", self.aout])
-        if self.alsa_device:
-            args.extend(["--alsa-audio-device", self.alsa_device])
-
-        args.append(media_target)
-
-        logger.info("Starting song playback for: %s", media_target)
+        logger.info("Starting song playback via mpv for: %s", media_target)
         logger.debug("Command: %s", " ".join(args))
 
         try:
-            with open("/tmp/cvlc_stderr.log", "w", encoding="utf-8") as log_file:
+            with open("/tmp/mpv_stderr.log", "w", encoding="utf-8") as log_file:
                 self.process = subprocess.Popen(
                     args,
                     stdout=subprocess.DEVNULL,
@@ -207,7 +197,7 @@ class DisplayManager:
             exit_code = self.process.poll()
             if exit_code is not None:
                 err_snippet = self._read_last_log_snippet()
-                logger.error("VLC playback process exited immediately with code %s. Detail: %s", exit_code, err_snippet)
+                logger.error("mpv playback process exited immediately with code %s. Detail: %s", exit_code, err_snippet)
                 self.process = None
                 self.current_mode = "stopped"
                 return False
@@ -221,8 +211,8 @@ class DisplayManager:
             self.current_mode = "stopped"
             return False
 
-    def _read_last_log_snippet(self, log_path: str = "/tmp/cvlc_stderr.log", max_lines: int = 5) -> str:
-        """Reads recent lines from the VLC log file for diagnostic reporting."""
+    def _read_last_log_snippet(self, log_path: str = "/tmp/mpv_stderr.log", max_lines: int = 5) -> str:
+        """Reads recent lines from the mpv log file for diagnostic reporting."""
         if not os.path.exists(log_path):
             return "No log file found"
         try:
@@ -232,10 +222,10 @@ class DisplayManager:
         except Exception:
             return "Could not read log file"
 
-    def send_rc_command(self, command: str) -> bool:
+    def send_ipc_command(self, command_args: List) -> bool:
         """
-        Sends an interactive control command (e.g. 'pause', 'volume 256')
-        to the running VLC instance via Unix domain socket.
+        Sends a JSON-RPC command list to the mpv IPC Unix domain socket.
+        Example: ['cycle', 'pause'] or ['set_property', 'volume', 80].
         """
         if not self.is_running() or not self.enable_rc:
             return False
@@ -247,12 +237,23 @@ class DisplayManager:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                 client.settimeout(1.0)
                 client.connect(self.rc_socket_path)
-                client.sendall(f"{command.strip()}\n".encode("utf-8"))
+                payload = json.dumps({"command": command_args}) + "\n"
+                client.sendall(payload.encode("utf-8"))
                 return True
         except Exception as e:
-            logger.debug("Failed to send RC command '%s': %s", command, e)
+            logger.debug("Failed to send MPV IPC command %s: %s", command_args, e)
             return False
+
+    def send_rc_command(self, command: str) -> bool:
+        """
+        Backward-compatible control command dispatcher.
+        """
+        cmd_str = command.strip().lower()
+        if cmd_str == "pause":
+            return self.pause_toggle()
+        return self.send_ipc_command([command.strip()])
 
     def pause_toggle(self) -> bool:
         """Toggles playback pause state."""
-        return self.send_rc_command("pause")
+        return self.send_ipc_command(["cycle", "pause"])
+
