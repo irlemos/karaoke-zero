@@ -613,7 +613,6 @@ Environment=PIKARAOKE_URL=http://127.0.0.1:${PIKARAOKE_PORT}
 Environment=VLC_VOUT=drm
 Environment=VLC_AOUT=alsa
 Environment=ALSA_DEVICE=default
-Environment=HOME=%h
 
 [Install]
 WantedBy=multi-user.target
@@ -641,7 +640,6 @@ ExecStart=${PIKARAOKE_INSTALL_DIR}/venv/bin/python -m pikaraoke.app \\
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
-Environment=HOME=%h
 KillMode=mixed
 TimeoutStopSec=10
 

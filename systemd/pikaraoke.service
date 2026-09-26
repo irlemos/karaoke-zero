@@ -18,7 +18,6 @@ ExecStart=/opt/pikaraoke/venv/bin/python -m pikaraoke.app \
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
-Environment=HOME=%h
 
 # Memory & Process isolation
 KillMode=mixed

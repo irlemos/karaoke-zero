@@ -134,6 +134,11 @@ class DisplayManager:
             ])
             logger.info("Applying QR code overlay from: %s", qr_code_path)
 
+        if self.aout:
+            args.extend(["--aout", self.aout])
+        if self.alsa_device:
+            args.extend(["--alsa-audio-device", self.alsa_device])
+
         args.append(video_path)
 
         logger.info("Starting IDLE screen via cvlc (vout=%s)...", self.vout)

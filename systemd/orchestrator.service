@@ -18,7 +18,6 @@ Environment=PIKARAOKE_URL=http://127.0.0.1:5555
 Environment=VLC_VOUT=drm
 Environment=VLC_AOUT=alsa
 Environment=ALSA_DEVICE=default
-Environment=HOME=%h
 
 [Install]
 WantedBy=multi-user.target
