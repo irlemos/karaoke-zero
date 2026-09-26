@@ -299,6 +299,25 @@ PKGS=(
     python3-pip
     python3-venv
     python3-flask
+    python3-brotli
+    python3-gevent
+    python3-greenlet
+    python3-psutil
+    python3-mutagen
+    python3-pycryptodome
+    python3-websockets
+    python3-qrcode
+    python3-requests
+    python3-urllib3
+    python3-babel
+    python3-jinja2
+    python3-werkzeug
+    python3-markupsafe
+    python3-click
+    python3-blinker
+    python3-itsdangerous
+    python3-simple-websocket
+    python3-wsproto
     git
     curl
 )
@@ -340,18 +359,26 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         git clone --depth 1 -b master "${PIKARAOKE_REPO_URL}" "${PIKARAOKE_INSTALL_DIR}"
     fi
 
-    # Create isolated Python virtualenv (PEP 668 compliant, native Python 3.11+ on Bookworm)
+    # Create isolated Python virtualenv with access to system packages (PEP 668 compliant, native APT packages)
     if [[ ! -d "${PIKARAOKE_INSTALL_DIR}/venv" ]]; then
-        log_info "Creating Python virtual environment in ${PIKARAOKE_INSTALL_DIR}/venv..."
-        python3 -m venv "${PIKARAOKE_INSTALL_DIR}/venv"
+        log_info "Creating Python virtual environment in ${PIKARAOKE_INSTALL_DIR}/venv (with system site packages)..."
+        python3 -m venv --system-site-packages "${PIKARAOKE_INSTALL_DIR}/venv"
+    else
+        log_info "Ensuring system site packages are enabled in ${PIKARAOKE_INSTALL_DIR}/venv..."
+        python3 -m venv --system-site-packages --upgrade "${PIKARAOKE_INSTALL_DIR}/venv" 2>/dev/null || true
+        if [[ -f "${PIKARAOKE_INSTALL_DIR}/venv/pyvenv.cfg" ]]; then
+            sed -i 's/include-system-site-packages = false/include-system-site-packages = true/' "${PIKARAOKE_INSTALL_DIR}/venv/pyvenv.cfg"
+        fi
     fi
 
     log_info "Installing PiKaraoke and dependencies into virtual environment..."
     "${PIKARAOKE_INSTALL_DIR}/venv/bin/pip" install --upgrade pip setuptools wheel
     if [[ -f "${PIKARAOKE_INSTALL_DIR}/pyproject.toml" ]]; then
-        "${PIKARAOKE_INSTALL_DIR}/venv/bin/pip" install --extra-index-url https://www.piwheels.org/simple "${PIKARAOKE_INSTALL_DIR}"
+        "${PIKARAOKE_INSTALL_DIR}/venv/bin/pip" install --extra-index-url https://www.piwheels.org/simple "${PIKARAOKE_INSTALL_DIR}" || \
+        "${PIKARAOKE_INSTALL_DIR}/venv/bin/pip" install "${PIKARAOKE_INSTALL_DIR}"
     elif [[ -f "${PIKARAOKE_INSTALL_DIR}/requirements.txt" ]]; then
-        "${PIKARAOKE_INSTALL_DIR}/venv/bin/pip" install --extra-index-url https://www.piwheels.org/simple -r "${PIKARAOKE_INSTALL_DIR}/requirements.txt"
+        "${PIKARAOKE_INSTALL_DIR}/venv/bin/pip" install --extra-index-url https://www.piwheels.org/simple -r "${PIKARAOKE_INSTALL_DIR}/requirements.txt" || \
+        "${PIKARAOKE_INSTALL_DIR}/venv/bin/pip" install -r "${PIKARAOKE_INSTALL_DIR}/requirements.txt"
     fi
 fi
 
