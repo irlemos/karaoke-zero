@@ -140,13 +140,25 @@ class DisplayManager:
         logger.debug("Command: %s", " ".join(args))
 
         try:
-            self.process = subprocess.Popen(
-                args,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL,
-                preexec_fn=os.setsid if hasattr(os, "setsid") else None
-            )
+            with open("/tmp/cvlc_stderr.log", "w", encoding="utf-8") as log_file:
+                self.process = subprocess.Popen(
+                    args,
+                    stdout=subprocess.DEVNULL,
+                    stderr=log_file,
+                    stdin=subprocess.DEVNULL,
+                    preexec_fn=os.setsid if hasattr(os, "setsid") else None
+                )
+
+            # Brief check if VLC exited on launch
+            time.sleep(0.1)
+            exit_code = self.process.poll()
+            if exit_code is not None:
+                err_snippet = self._read_last_log_snippet()
+                logger.error("VLC idle process exited immediately with code %s. Detail: %s", exit_code, err_snippet)
+                self.process = None
+                self.current_mode = "stopped"
+                return False
+
             self.current_mode = "idle"
             self.current_media = video_path
             return True
@@ -177,13 +189,24 @@ class DisplayManager:
         logger.debug("Command: %s", " ".join(args))
 
         try:
-            self.process = subprocess.Popen(
-                args,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL,
-                preexec_fn=os.setsid if hasattr(os, "setsid") else None
-            )
+            with open("/tmp/cvlc_stderr.log", "w", encoding="utf-8") as log_file:
+                self.process = subprocess.Popen(
+                    args,
+                    stdout=subprocess.DEVNULL,
+                    stderr=log_file,
+                    stdin=subprocess.DEVNULL,
+                    preexec_fn=os.setsid if hasattr(os, "setsid") else None
+                )
+
+            time.sleep(0.1)
+            exit_code = self.process.poll()
+            if exit_code is not None:
+                err_snippet = self._read_last_log_snippet()
+                logger.error("VLC playback process exited immediately with code %s. Detail: %s", exit_code, err_snippet)
+                self.process = None
+                self.current_mode = "stopped"
+                return False
+
             self.current_mode = "playing"
             self.current_media = media_target
             return True
@@ -192,6 +215,17 @@ class DisplayManager:
             self.process = None
             self.current_mode = "stopped"
             return False
+
+    def _read_last_log_snippet(self, log_path: str = "/tmp/cvlc_stderr.log", max_lines: int = 5) -> str:
+        """Reads recent lines from the VLC log file for diagnostic reporting."""
+        if not os.path.exists(log_path):
+            return "No log file found"
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+                return " ".join([l.strip() for l in lines[-max_lines:] if l.strip()])
+        except Exception:
+            return "Could not read log file"
 
     def send_rc_command(self, command: str) -> bool:
         """

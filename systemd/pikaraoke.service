@@ -1,11 +1,14 @@
 [Unit]
 Description=PiKaraoke Core Headless Background Service
-After=network.target NetworkManager.service
+RequiresMountsFor=/mnt/external_hd/karaoke
+After=local-fs.target network.target NetworkManager.service
 Wants=network.target
 
 [Service]
 Type=simple
-User=root
+User=karaoke
+Group=karaoke
+SupplementaryGroups=video audio render input
 WorkingDirectory=/opt/pikaraoke
 ExecStart=/opt/pikaraoke/venv/bin/python -m pikaraoke.app \
     --headless \
@@ -15,7 +18,7 @@ ExecStart=/opt/pikaraoke/venv/bin/python -m pikaraoke.app \
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
-Environment=HOME=/root
+Environment=HOME=/home/karaoke
 
 # Memory & Process isolation
 KillMode=mixed

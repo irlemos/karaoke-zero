@@ -1,11 +1,14 @@
 [Unit]
 Description=KaraokeZero Display & Queue Orchestrator Daemon
-After=network.target NetworkManager.service pikaraoke.service
+RequiresMountsFor=/mnt/external_hd/karaoke
+After=local-fs.target network.target NetworkManager.service pikaraoke.service
 Wants=pikaraoke.service
 
 [Service]
 Type=simple
-User=root
+User=karaoke
+Group=karaoke
+SupplementaryGroups=video audio render input
 WorkingDirectory=/opt/karaokezero/orchestrator
 ExecStart=/usr/bin/python3 /opt/karaokezero/orchestrator/orchestrator.py
 Restart=always
@@ -15,10 +18,7 @@ Environment=PIKARAOKE_URL=http://127.0.0.1:5555
 Environment=VLC_VOUT=drm
 Environment=VLC_AOUT=alsa
 Environment=ALSA_DEVICE=default
-
-# Embedded hardware resource protection (RPi Zero W)
-CPUQuota=25%
-MemoryMax=64M
+Environment=HOME=/home/karaoke
 
 [Install]
 WantedBy=multi-user.target

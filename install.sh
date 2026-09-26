@@ -116,6 +116,16 @@ log_info "Running pre-flight system checks..."
 ARCH=$(uname -m)
 log_info "Detected architecture: ${ARCH}"
 
+# Detect standard non-root runtime user (who executed sudo or primary login user)
+if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    APP_USER="${SUDO_USER}"
+else
+    APP_USER=$(id -un 1000 2>/dev/null || echo "karaoke")
+fi
+APP_HOME=$(getent passwd "${APP_USER}" 2>/dev/null | cut -d: -f6)
+APP_HOME="${APP_HOME:-/home/${APP_USER}}"
+log_info "Target non-root runtime user: ${APP_USER} (${APP_HOME})"
+
 # ------------------------------------------------------------------------------
 # 2. Configuration Loading
 # ------------------------------------------------------------------------------
@@ -258,10 +268,28 @@ if [[ "${STORAGE_TYPE}" == "external_hd" ]]; then
     if [[ "${DRY_RUN}" != "true" ]]; then
         mkdir -p "${MOUNT_POINT}"
 
-        # Add fstab entry with safe nofail,noatime options if not present
+        # Resolve UUID if STORAGE_DEVICE is a block device (e.g. /dev/sda1)
+        FSTAB_TARGET="${STORAGE_DEVICE}"
+        if [[ "${STORAGE_DEVICE}" =~ ^/dev/ ]]; then
+            DEVICE_UUID=$(blkid -s UUID -o value "${STORAGE_DEVICE}" 2>/dev/null || true)
+            if [[ -n "${DEVICE_UUID}" ]]; then
+                log_info "Resolved ${STORAGE_DEVICE} to UUID=${DEVICE_UUID}"
+                FSTAB_TARGET="UUID=${DEVICE_UUID}"
+            fi
+        fi
+
+        # Add fstab entry with automount, nofail, and generous timeout
+        FSTAB_ENTRY="${FSTAB_TARGET} ${MOUNT_POINT} auto defaults,noatime,nofail,x-systemd.automount,x-systemd.device-timeout=30 0 2"
         if ! grep -qs "${MOUNT_POINT}" /etc/fstab; then
-            log_info "Adding ${MOUNT_POINT} to /etc/fstab with nofail,noatime..."
-            echo "${STORAGE_DEVICE} ${MOUNT_POINT} auto defaults,noatime,nofail,x-systemd.device-timeout=10 0 2" >> /etc/fstab
+            log_info "Adding ${MOUNT_POINT} (${FSTAB_TARGET}) to /etc/fstab with x-systemd.automount..."
+            echo "${FSTAB_ENTRY}" >> /etc/fstab
+        else
+            log_info "Updating existing ${MOUNT_POINT} entry in /etc/fstab..."
+            sed -i "s|.*[[:space:]]${MOUNT_POINT}[[:space:]].*|${FSTAB_ENTRY}|" /etc/fstab
+        fi
+
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl daemon-reload 2>/dev/null || true
         fi
 
         # Mount target if device exists and not currently mounted
@@ -270,6 +298,7 @@ if [[ "${STORAGE_TYPE}" == "external_hd" ]]; then
         fi
 
         mkdir -p "${SONGS_DIR}" "${DATA_DIR}" "${MEDIA_DIR}"
+        chown -R "${APP_USER}:${APP_USER}" "${MOUNT_POINT}" 2>/dev/null || true
         chmod -R 777 "${MOUNT_POINT}" || true
     fi
 else
@@ -326,6 +355,12 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -y
     apt-get install -y "${PKGS[@]}"
+
+    # Ensure application runtime user has hardware access permissions (DRM, framebuffer, audio, input)
+    if id "${APP_USER}" >/dev/null 2>&1; then
+        log_info "Configuring hardware access groups for user '${APP_USER}'..."
+        usermod -a -G video,audio,render,input "${APP_USER}" 2>/dev/null || true
+    fi
 
     # Modern yt-dlp binary installation from official GitHub release
     log_info "Installing / updating official yt-dlp binary..."
@@ -393,6 +428,7 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     cp -r "${PROJECT_ROOT}/orchestrator" "${KARAOKEZERO_INSTALL_DIR}/"
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/wifi_manager/app.py"
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/orchestrator.py"
+    chown -R "${APP_USER}:${APP_USER}" "${KARAOKEZERO_INSTALL_DIR}" "${PIKARAOKE_INSTALL_DIR}" 2>/dev/null || true
 fi
 
 # ------------------------------------------------------------------------------
@@ -534,29 +570,68 @@ fi
 log_info "Registering systemd services..."
 
 if [[ "${DRY_RUN}" != "true" ]]; then
-    # WiFi Manager Service
+    # WiFi Manager Service (runs as root to manage NetworkManager keyfiles)
     cp "${PROJECT_ROOT}/systemd/wifi_manager.service" /etc/systemd/system/
 
-    # Orchestrator Service
-    cp "${PROJECT_ROOT}/systemd/orchestrator.service" /etc/systemd/system/
-
     # Ensure persistent data directory and link ~/.pikaraoke to DATA_DIR for SQLite storage
-    mkdir -p "${DATA_DIR}"
-    if [[ ! -L "/root/.pikaraoke" ]]; then
-        rm -rf /root/.pikaraoke
-        ln -s "${DATA_DIR}" /root/.pikaraoke
-    fi
+    mkdir -p "${DATA_DIR}" "${SONGS_DIR}" "${MEDIA_DIR}"
+    chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}" "${SONGS_DIR}" "${MEDIA_DIR}" 2>/dev/null || true
 
-    # PiKaraoke Core Service (Generate from template with resolved storage paths)
+    for TARGET_HOME in "/root" "${APP_HOME}"; do
+        if [[ -d "${TARGET_HOME}" ]]; then
+            PIKARAOKE_HOME_DIR="${TARGET_HOME}/.pikaraoke"
+            if [[ -L "${PIKARAOKE_HOME_DIR}" ]]; then
+                rm -f "${PIKARAOKE_HOME_DIR}"
+            elif [[ -d "${PIKARAOKE_HOME_DIR}" ]]; then
+                cp -rn "${PIKARAOKE_HOME_DIR}/"* "${DATA_DIR}/" 2>/dev/null || true
+                rm -rf "${PIKARAOKE_HOME_DIR}"
+            fi
+            ln -sf "${DATA_DIR}" "${PIKARAOKE_HOME_DIR}"
+            chown -h "${APP_USER}:${APP_USER}" "${PIKARAOKE_HOME_DIR}" 2>/dev/null || true
+        fi
+    done
+
+    # Orchestrator Service (Runs as APP_USER to enable direct DRM/KMS hardware playback via VLC)
+    cat << EOF > /etc/systemd/system/orchestrator.service
+[Unit]
+Description=KaraokeZero Display & Queue Orchestrator Daemon
+RequiresMountsFor=${MOUNT_POINT}
+After=local-fs.target network.target NetworkManager.service pikaraoke.service
+Wants=pikaraoke.service
+
+[Service]
+Type=simple
+User=${APP_USER}
+Group=${APP_USER}
+SupplementaryGroups=video audio render input
+WorkingDirectory=${KARAOKEZERO_INSTALL_DIR}/orchestrator
+ExecStart=/usr/bin/python3 ${KARAOKEZERO_INSTALL_DIR}/orchestrator/orchestrator.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=PIKARAOKE_URL=http://127.0.0.1:${PIKARAOKE_PORT}
+Environment=VLC_VOUT=drm
+Environment=VLC_AOUT=alsa
+Environment=ALSA_DEVICE=default
+Environment=HOME=${APP_HOME}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # PiKaraoke Core Service (Runs as APP_USER with strict mount dependency on the external drive)
     cat << EOF > /etc/systemd/system/pikaraoke.service
 [Unit]
 Description=PiKaraoke Core Headless Background Service
-After=network.target NetworkManager.service
+RequiresMountsFor=${MOUNT_POINT}
+After=local-fs.target network.target NetworkManager.service
 Wants=network.target
 
 [Service]
 Type=simple
-User=root
+User=${APP_USER}
+Group=${APP_USER}
+SupplementaryGroups=video audio render input
 WorkingDirectory=${PIKARAOKE_INSTALL_DIR}
 ExecStart=${PIKARAOKE_INSTALL_DIR}/venv/bin/python -m pikaraoke.app \\
     --headless \\
@@ -566,7 +641,7 @@ ExecStart=${PIKARAOKE_INSTALL_DIR}/venv/bin/python -m pikaraoke.app \\
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
-Environment=HOME=/root
+Environment=HOME=${APP_HOME}
 KillMode=mixed
 TimeoutStopSec=10
 
