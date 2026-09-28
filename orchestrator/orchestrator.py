@@ -3,7 +3,7 @@
 KaraokeZero - Module 2: Orchestrator Daemon
 Main Service Coordinator & Display FSM Engine
 
-Coordinates PiKaraoke status, hardware-accelerated VLC framebuffer rendering,
+Coordinates PiKaraoke status, hardware-accelerated MPV framebuffer rendering,
 and dynamic QR code generation on Raspberry Pi Zero W without X11/Chromium.
 """
 

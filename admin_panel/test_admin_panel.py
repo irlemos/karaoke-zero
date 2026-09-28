@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unit tests for KaraokeZero Module 1 (WiFi Manager)
+Unit tests for KaraokeZero Module 1 (System Admin Panel)
 """
 
 import configparser
@@ -13,7 +13,7 @@ import subprocess
 from app import parse_terse_line, scan_wifi_networks, get_current_wifi_status, app, SystemSettingsManager
 
 
-class TestWiFiManager(unittest.TestCase):
+class TestAdminPanel(unittest.TestCase):
 
     def setUp(self):
         self.client = app.test_client()

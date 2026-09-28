@@ -142,7 +142,7 @@ else
     ADMIN_WIFI_SSID="${ADMIN_WIFI_SSID:-}"
     ADMIN_WIFI_PASSWORD="${ADMIN_WIFI_PASSWORD:-}"
     PIKARAOKE_PORT="${PIKARAOKE_PORT:-5555}"
-    WIFI_MANAGER_PORT="${WIFI_MANAGER_PORT:-8888}"
+    ADMIN_PANEL_PORT="${ADMIN_PANEL_PORT:-${WIFI_MANAGER_PORT:-8888}}"
     PIKARAOKE_REPO_URL="${PIKARAOKE_REPO_URL:-https://github.com/vicwomg/pikaraoke.git}"
     PIKARAOKE_BRANCH="${PIKARAOKE_BRANCH:-master}"
     PIKARAOKE_INSTALL_DIR="${PIKARAOKE_INSTALL_DIR:-/opt/pikaraoke}"
@@ -160,7 +160,7 @@ SD_CARD_STORAGE_PATH="${SD_CARD_STORAGE_PATH:-}"
 ADMIN_WIFI_SSID="${ADMIN_WIFI_SSID:-}"
 ADMIN_WIFI_PASSWORD="${ADMIN_WIFI_PASSWORD:-}"
 PIKARAOKE_PORT="${PIKARAOKE_PORT:-5555}"
-WIFI_MANAGER_PORT="${WIFI_MANAGER_PORT:-8888}"
+ADMIN_PANEL_PORT="${ADMIN_PANEL_PORT:-${WIFI_MANAGER_PORT:-8888}}"
 PIKARAOKE_REPO_URL="${PIKARAOKE_REPO_URL:-https://github.com/vicwomg/pikaraoke.git}"
 PIKARAOKE_BRANCH="${PIKARAOKE_BRANCH:-master}"
 PIKARAOKE_INSTALL_DIR="${PIKARAOKE_INSTALL_DIR:-/opt/pikaraoke}"
@@ -321,7 +321,6 @@ log_info "Installing core system packages..."
 PKGS=(
     network-manager
     mpv
-    vlc
     qrencode
     ffmpeg
     alsa-utils
@@ -429,9 +428,9 @@ log_info "Installing KaraokeZero appliance services into ${KARAOKEZERO_INSTALL_D
 
 if [[ "${DRY_RUN}" != "true" ]]; then
     mkdir -p "${KARAOKEZERO_INSTALL_DIR}"
-    cp -r "${PROJECT_ROOT}/wifi_manager" "${KARAOKEZERO_INSTALL_DIR}/"
+    cp -r "${PROJECT_ROOT}/admin_panel" "${KARAOKEZERO_INSTALL_DIR}/"
     cp -r "${PROJECT_ROOT}/orchestrator" "${KARAOKEZERO_INSTALL_DIR}/"
-    chmod +x "${KARAOKEZERO_INSTALL_DIR}/wifi_manager/app.py"
+    chmod +x "${KARAOKEZERO_INSTALL_DIR}/admin_panel/app.py"
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/orchestrator.py"
     chown -R "${APP_USER}:${APP_USER}" "${KARAOKEZERO_INSTALL_DIR}" "${PIKARAOKE_INSTALL_DIR}" 2>/dev/null || true
 fi
@@ -575,8 +574,8 @@ fi
 log_info "Registering systemd services..."
 
 if [[ "${DRY_RUN}" != "true" ]]; then
-    # WiFi Manager Service (runs as root to manage NetworkManager keyfiles)
-    cp "${PROJECT_ROOT}/systemd/wifi_manager.service" /etc/systemd/system/
+    # Admin Panel Service (runs as root to manage NetworkManager keyfiles and system controls)
+    cp "${PROJECT_ROOT}/systemd/admin_panel.service" /etc/systemd/system/
 
     # Ensure persistent data directory and link ~/.pikaraoke to DATA_DIR for SQLite storage
     mkdir -p "${DATA_DIR}" "${SONGS_DIR}" "${MEDIA_DIR}"
@@ -661,7 +660,7 @@ EOF
                      KaraokeZero Appliance
 ===================================================================
   • PiKaraoke:   http://\\4:5555
-  • Wi-Fi Setup: http://\\4:8888 (or captive portal)
+  • Admin Panel: http://\\4:8888 (Wi-Fi, song search, system)
 ===================================================================
 \\s \\r (\\l)
 
@@ -669,7 +668,7 @@ EOF
 
     systemctl daemon-reload
     log_info "Enabling KaraokeZero services for auto-start on boot..."
-    systemctl enable wifi_manager.service pikaraoke.service orchestrator.service
+    systemctl enable admin_panel.service pikaraoke.service orchestrator.service
 fi
 
 echo ""
@@ -677,7 +676,7 @@ echo -e "${GREEN}${BOLD}========================================================
 echo -e "${GREEN}${BOLD}KaraokeZero Appliance Provisioning Complete!${RESET}"
 echo -e "${GREEN}${BOLD}===================================================================${RESET}"
 echo -e "  • ${BOLD}PiKaraoke Web App:${RESET}        http://<pi-ip>:${PIKARAOKE_PORT}"
-echo -e "  • ${BOLD}Captive Wi-Fi Portal:${RESET}     http://<pi-ip>:${WIFI_MANAGER_PORT}"
+echo -e "  • ${BOLD}Admin & System Panel:${RESET}     http://<pi-ip>:${ADMIN_PANEL_PORT}"
 echo -e "  • ${BOLD}Song Library Directory:${RESET}   ${SONGS_DIR}"
 echo -e "  • ${BOLD}Persistent Data Storage:${RESET}  ${DATA_DIR}"
 echo -e "  • ${BOLD}Display Engine:${RESET}           mpv (Direct DRM/KMS GPU) + Zero-CPU Static Console Idle"

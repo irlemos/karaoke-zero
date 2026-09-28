@@ -36,45 +36,45 @@
         "--data-dir /mnt/external_hd/karaoke/data"
       ]
     },
-    "media_player": "VLC Media Player (CLI via cvlc wrapper)",
-    "video_rendering_engine": "Direct Rendering Manager (KMS/DRM) with hardware-accelerated video decoding"
+    "media_player": "MPV Media Player (CLI via direct DRM/KMS)",
+    "video_rendering_engine": "Direct Rendering Manager (KMS/DRM) with hardware-accelerated video decoding via mpv (vo=gpu, gpu-context=drm)"
   },
   "custom_components": {
-    "wifi_manager": {
-      "purpose": "Captive web portal for headless wireless network configuration without attached displays or keyboards.",
-      "tech_stack": "Python 3, Flask, NetworkManager CLI (nmcli)",
+    "admin_panel": {
+      "purpose": "Mobile-first administration portal for song search & background download, PiKaraoke system settings, hardware diagnostics, power controls, and headless Wi-Fi onboarding.",
+      "tech_stack": "Python 3, Flask, yt-dlp, NetworkManager CLI (nmcli)",
       "logic_flow": [
-        "1. NetworkManager is configured to favor an administrator fallback hotspot (Priority 100).",
-        "2. If no configured venue network is reachable, the device establishes connection with the fallback hotspot.",
+        "1. Serves a 3-tab mobile web app: Songs (search & yt-dlp downloads), System (PiKaraoke settings & power controls), and Wi-Fi.",
+        "2. NetworkManager is configured to favor an administrator fallback hotspot (Priority 100).",
         "3. User connects to the configuration portal via smartphone browser at http://<ip>:8888.",
-        "4. Flask backend calls 'nmcli dev wifi' to retrieve visible networks and deduplicates by SSID.",
-        "5. User selects target network and submits credentials.",
-        "6. Service writes the connection profile with Priority 50 and commands NetworkManager to associate with the venue."
+        "4. Performs background serialized downloads of karaoke videos with quality throttling and best audio bitrate.",
+        "5. Toggles PiKaraoke guest access (online YouTube search vs local-only) and synchronizes config.ini.",
+        "6. Provisions venue Wi-Fi credentials with Priority 50 and handles system reboot/shutdown."
       ]
     },
     "orchestrator": {
       "purpose": "Background daemon coordinating PiKaraoke queue states with direct-to-framebuffer video playback.",
-      "tech_stack": "Python 3, qrencode, cvlc",
+      "tech_stack": "Python 3, qrencode, mpv, Pillow",
       "logic_flow": [
         "1. Identify active IP address on the primary wireless interface and generate connection QR code via qrencode.",
         "2. Poll PiKaraoke REST API (/api/queue) for upcoming songs and track status.",
-        "3. IDLE STATE: Launch background video loop with cvlc, overlaying the connection QR code via VLC's logo sub-source filter onto the DRM framebuffer.",
-        "4. PLAYING STATE: Stop idle loop and spawn cvlc targeting the active song stream using KMS/DRM hardware acceleration (--vout drm).",
-        "5. TRACK COMPLETION: Terminate cvlc, notify PiKaraoke backend, release VideoCore GPU resources, and return to idle state."
+        "3. IDLE STATE: Launch graphical idle details screen (or optional background video) via mpv direct DRM/KMS, displaying IP and dynamic connection QR code.",
+        "4. PLAYING STATE: Stop idle screen and spawn mpv targeting the active song stream using DRM/KMS GPU acceleration (vo=gpu, gpu-context=drm).",
+        "5. TRACK COMPLETION: Terminate mpv, notify PiKaraoke backend, release GPU resources, and return to idle state."
       ]
     },
     "installer": {
       "purpose": "Automated host provisioning script for Raspberry Pi OS Lite.",
       "actions": [
-        "Install system packages: vlc, python3-flask, network-manager, qrencode, yt-dlp.",
+        "Install system packages: mpv, python3-flask, network-manager, qrencode, yt-dlp, python3-pil.",
         "Configure /etc/fstab for external USB drive mount persistence.",
         "Fetch latest upstream PiKaraoke release and configure Python virtual environments under PEP 668.",
-        "Install, enable, and verify systemd service units (wifi_manager, orchestrator, pikaraoke)."
+        "Install, enable, and verify systemd service units (admin_panel, orchestrator, pikaraoke)."
       ]
     }
   },
   "performance_and_stability_guarantees": {
-    "ram_management": "VLC processes are recycled between songs to reclaim memory and GPU framebuffers; no web browser runs on the host.",
+    "ram_management": "mpv processes are recycled between songs to reclaim memory and GPU framebuffers; no web browser runs on the host.",
     "cpu_management": "Video decoding offloaded via DRM/KMS hardware acceleration; microphone audio is mixed in the analog domain.",
     "sd_card_protection": "All write-intensive processes (SQLite database, yt-dlp buffers, media downloads) are stored on external USB storage."
   }

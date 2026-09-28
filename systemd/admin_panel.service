@@ -1,13 +1,13 @@
 [Unit]
-Description=KaraokeZero WiFi Manager Captive Portal
+Description=KaraokeZero System Admin & Configuration Panel
 After=network.target NetworkManager.service
 Wants=NetworkManager.service
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/karaokezero/wifi_manager
-ExecStart=/usr/bin/python3 /opt/karaokezero/wifi_manager/app.py
+WorkingDirectory=/opt/karaokezero/admin_panel
+ExecStart=/usr/bin/python3 /opt/karaokezero/admin_panel/app.py
 Restart=always
 RestartSec=5
 Environment=PORT=8888

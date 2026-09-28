@@ -14,10 +14,10 @@ Running a modern karaoke interface on minimal hardware presents distinct challen
 
 KaraokeZero solves this by decoupling the playback display from the browser environment. Operating entirely on Raspberry Pi OS Lite without X11 or Wayland, KaraokeZero functions as an appliance layer:
 
-- **Direct DRM/KMS Video Playback:** Video is rendered directly to the Linux framebuffer using VLC's Direct Rendering Manager interface (`cvlc --vout drm`), taking advantage of VideoCore hardware acceleration without desktop server overhead.
+- **Direct DRM/KMS Video Playback:** Video is rendered directly to the Linux framebuffer using MPV (`mpv --vo=gpu --gpu-context=drm`), taking advantage of VideoCore hardware acceleration without desktop server overhead.
 - **Zero-Latency Microphone Architecture:** Rather than processing microphone audio through the Linux sound subsystem—which introduces latency and consumes CPU cycles—vocal audio is kept in the analog domain. Audio from HDMI output is extracted via an HDMI-to-VGA adapter's 3.5 mm jack and routed into an external multichannel analog mixer alongside physical microphones.
 - **Flash Storage Protection:** Continuous disk writes quickly wear out microSD cards. KaraokeZero directs all write-intensive tasks (SQLite databases, temporary video download buffers from yt-dlp, and song files) to an external USB hard drive or SSD mounted at `/mnt/external_hd/karaoke`.
-- **Headless Network Provisioning:** When moving between home networks, venues, or outdoor gatherings, an onboard captive web portal (`wifi_manager`) allows attendees or hosts to configure local Wi-Fi from any smartphone browser without requiring an attached keyboard or monitor.
+- **System Administration & Management Portal:** An onboard mobile-first management portal (`admin_panel`) running on port 8888 allows hosts to configure local Wi-Fi, search and download YouTube tracks in the background, toggle guest access modes (online vs. offline), customize download video quality, and manage device power safely.
 
 ---
 
@@ -52,7 +52,7 @@ KaraokeZero solves this by decoupling the playback display from the browser envi
 ```
 
 ### Media Flow Breakdown
-1. **Video Decoding:** VLC runs via CLI (`cvlc`) with `--vout drm --no-osd`, rendering frames directly to the display controller without a window manager.
+1. **Video Decoding:** MPV runs via CLI (`mpv`) with `--vo=gpu --gpu-context=drm`, rendering frames directly to the display controller without a window manager or X11/Wayland overhead.
 2. **Audio Extraction:** Stereo track audio travels digitally over HDMI to an active Mini-HDMI to VGA adapter, which exposes a 3.5 mm analog stereo jack. This signal feeds an external mixer channel.
 3. **Vocal Isolation:** Microphones connect directly into dedicated mixer channels with hardware gain and echo controls. The Raspberry Pi never captures or processes vocal streams, completely eliminating software audio latency.
 
@@ -72,15 +72,16 @@ karaoke-zero/
 ├── README.md                   # Main documentation
 ├── LICENSE                     # AGPL-3.0 License
 │
-├── wifi_manager/               # Captive network onboarding service
-│   ├── app.py                  # Flask web service wrapping NetworkManager (nmcli)
-│   ├── templates/index.html    # Self-contained mobile UI (zero external assets)
-│   ├── test_wifi_manager.py    # Unit tests for parser and API endpoints
+├── admin_panel/                # System management & administrative web portal
+│   ├── app.py                  # Flask web service, yt-dlp worker, and NetworkManager API
+│   ├── templates/index.html    # Mobile-first 3-tab web app (zero external CDN assets)
+│   ├── test_admin_panel.py     # Unit tests for settings, downloads, and networking APIs
 │   └── README.md               # Technical component documentation
 │
 ├── orchestrator/               # Hardware display and queue synchronization daemon
 │   ├── orchestrator.py         # Main loop and state machine coordinator
-│   ├── display_manager.py      # Subprocess lifecycle manager for cvlc
+│   ├── display_manager.py      # Subprocess lifecycle manager for mpv
+│   ├── screen_generator.py     # Generates high-contrast graphical idle details screen
 │   ├── network_watcher.py      # IP resolution and dynamic QR code generation
 │   ├── pikaraoke_client.py     # Local client for PiKaraoke REST & WebSocket APIs
 │   ├── test_orchestrator.py    # Unit tests covering state transitions
@@ -88,27 +89,27 @@ karaoke-zero/
 │
 ├── systemd/                    # Systemd service unit files
 │   ├── pikaraoke.service       # Headless PiKaraoke daemon unit
-│   ├── wifi_manager.service    # Captive portal web service unit
+│   ├── admin_panel.service     # System Admin Panel web service unit
 │   └── orchestrator.service    # Display orchestrator daemon unit
 │
 └── tests/                      # Validation test suites
     └── test_installer.sh       # Installer syntax, input parsing, and dry-run tests
 ```
 
-### 1. Wi-Fi Manager (`wifi_manager/`)
-A lightweight Flask service running on port 8888. It interacts with `NetworkManager` via `nmcli` to scan for wireless access points, deduplicate BSSIDs across mesh systems, and establish connections.
-- **Priority 100 (Fallback Hotspot):** The Pi is configured to automatically connect to an administrator's mobile hotspot when no recognized venue network is found.
-- **Priority 50 (Venue Wi-Fi):** When configured via the web UI, local venue networks are assigned priority 50. NetworkManager will favor the venue connection once established.
-- **Self-Contained Interface:** The mobile HTML/CSS interface contains zero external CDN dependencies (no remote web fonts, frameworks, or icons), allowing it to load instantly on devices connected to the Pi before internet routing is established.
+### 1. System Admin Panel (`admin_panel/`)
+A lightweight, mobile-first Flask service running on port 8888 providing comprehensive management across 3 tabs:
+- **Song Search & Background Downloads:** Search YouTube karaoke tracks via `yt-dlp` metadata, enqueue background downloads to `/mnt/external_hd/karaoke/songs` without disturbing playback, enforce video quality caps while capturing the best available audio bitrate (`bestaudio`), and trigger immediate PiKaraoke catalog rescanning.
+- **System Settings & Power Controls:** Toggle PiKaraoke guest access (Online YouTube searching on port 5555 vs. Offline local-only songs), set default persistent download quality (360p to 1080p), monitor live hardware telemetry (CPU temp, RAM, storage, uptime), and initiate safe system reboot or poweroff with confirmation modals.
+- **Headless Wi-Fi Provisioning:** Connects to venue networks with Priority 50, automatically falling back to an administrator's mobile hotspot with Priority 100 whenever no saved network is reachable.
 
 ### 2. Display Orchestrator (`orchestrator/`)
-A Python service that monitors the local PiKaraoke queue (`/api/queue`) and drives the physical screen output:
-- **Idle Mode:** When no tracks are queued, the orchestrator plays a looping background animation (`assets/idle_loop.mp4`). It periodically queries `network_watcher.py` for the current IP on the active network interface (`wlan0`), generates a QR code via `qrencode` targeting `http://<ip>:5555`, and overlays the graphic on the video stream using VLC's logo sub-source filter.
-- **Active Playback:** When a user queues a track, the idle loop terminates and the orchestrator launches `cvlc` targeting the requested media stream. 
-- **Process Recycling:** Between songs, the VLC process is terminated and re-spawned. This completely flushes memory allocations and releases VideoCore IV GPU handles, avoiding memory fragmentation during extended sessions.
+A Python service that monitors the local PiKaraoke queue (`/api/queue`) and drives the physical screen output via MPV:
+- **Idle Mode:** When no tracks are queued, the orchestrator displays a graphical details screen rendered via `screen_generator.py` (or an optional looping background video). It renders the active IP, dynamic attendee connection QR code (`http://<ip>:5555`), and admin portal URL (`http://<ip>:8888`).
+- **Active Playback:** When a user queues a track, the idle display transitions and the orchestrator launches `mpv` targeting the requested media stream using hardware GPU acceleration (`--vo=gpu --gpu-context=drm`) and direct ALSA HDMI audio.
+- **Process Recycling:** Between songs, the MPV process is terminated and cleanly re-spawned. This completely flushes memory allocations and releases VideoCore IV GPU handles, avoiding memory fragmentation during extended sessions.
 
 ### 3. Automated Installer (`install.sh`)
-An unattended and interactive provisioning script intended for clean installations of Raspberry Pi OS Lite (32-bit Bookworm or newer). It manages package dependencies, configures `/etc/fstab` for the external drive, builds isolated Python virtual environments under PEP 668, configures GPU memory allocations in `/boot/firmware/config.txt`, and enables the systemd service units.
+An unattended and interactive provisioning script intended for clean installations of Raspberry Pi OS Lite (32-bit Bookworm or newer). It manages package dependencies (`mpv`, `network-manager`, `yt-dlp`, `qrencode`, `python3-pil`), configures `/etc/fstab` for the external drive, builds isolated Python virtual environments under PEP 668, configures GPU memory allocations in `/boot/firmware/config.txt`, and enables the systemd service units.
 
 ---
 
@@ -165,19 +166,22 @@ cat install.log
 | **Operating System** | Raspberry Pi OS Lite | 32-bit Bookworm or newer (headless, systemd, Linux 6.x) |
 | **Network Engine** | NetworkManager (`nmcli`) | Managed multi-profile connection priorities and AP scanning |
 | **Karaoke Core** | [PiKaraoke](https://github.com/vicwomg/pikaraoke) | Headless daemon (`--headless --download-path`) |
-| **Media Player** | VLC (`cvlc`) | Direct Rendering Manager / KMS acceleration (`--vout drm`) |
-| **QR Code Tool** | `qrencode` | Generates dynamic connection QR images in `tmpfs` |
-| **Portal Web Stack** | Python 3 / Flask | Lightweight HTTP service without external runtime dependencies |
+| **Media Player** | MPV (`mpv`) | Direct Rendering Manager / KMS GPU acceleration (`--vo=gpu --gpu-context=drm`) |
+| **QR Code Tool** | `qrencode` & Pillow | Generates dynamic connection QR images and graphical splash screens |
+| **Admin Web Stack** | Python 3 / Flask / yt-dlp | Mobile-first 3-tab portal (8888) with zero external CDN dependencies |
 
 ---
 
 ## Testing & Validation
 
-The repository includes test suites to verify installer integrity, parameter validation, and orchestrator state machine logic:
+The repository includes test suites to verify installer integrity, parameter validation, administrative APIs, and orchestrator state machine logic:
 
 ```bash
 # Run installer integration and syntax tests
 bash tests/test_installer.sh
+
+# Run admin panel unit tests
+python3 -m unittest discover -s admin_panel
 
 # Run orchestrator daemon unit tests
 python3 -m unittest discover -s orchestrator

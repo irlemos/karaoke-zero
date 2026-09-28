@@ -1,14 +1,40 @@
-# Wi-Fi Manager
+# System Admin Panel
 
-The Wi-Fi Manager provides headless network onboarding for KaraokeZero. When operating single-board computers in changing environments—such as rental venues, parties, or friend's homes—reconfiguring network credentials without a keyboard and monitor attached is a common hurdle. 
+The **System Admin Panel** is the primary management and administration hub for KaraokeZero. Designed mobile-first for hosts and administrators, it runs a lightweight web application on port `8888` that manages network onboarding, YouTube song searching and background downloads, PiKaraoke operational settings, real-time hardware diagnostics, and device power controls.
 
-This component runs a lightweight web service that allows any smartphone connected to the device to scan for local Wi-Fi networks and submit credentials.
+The interface is completely self-contained (zero remote CDN dependencies) and works seamlessly offline.
 
 ---
 
-## 1. Connection Lifecycle & Priority Model
+## 1. Core Modules & Tab Architecture
 
-KaraokeZero uses NetworkManager (`nmcli`) to handle network transitions using a two-tier priority model:
+The portal provides a fixed bottom navigation bar organized into 3 main tabs:
+
+### Tab 1: Song Search & Background Downloads (`#tab-songs`)
+- **YouTube Search:** Performs lightweight search queries against YouTube metadata via `yt-dlp` (`--flat-playlist --dump-json`) without requiring YouTube API keys or credentials.
+- **Background Downloads:** Serialized background worker downloads songs directly to `/mnt/external_hd/karaoke/songs`. Downloads run independently without interrupting active video playback in PiKaraoke.
+- **Audio & Video Quality Control:** Throttles video resolution to the configured setting (`bestvideo[height<=quality]`), while **always capturing the highest possible audio bitrate (`bestaudio`)**.
+- **Live Queue Monitoring:** Real-time progress bars, speed, ETA, and state indicators (`queued`, `downloading`, `completed`, `error`).
+- **PiKaraoke Catalog Rescan:** Instantly restarts `pikaraoke.service` to reindex the local catalog so newly downloaded tracks become immediately searchable for guests.
+
+### Tab 2: System Settings & Power Management (`#tab-system`)
+- **Guest Access Mode:**
+  - **Online Mode:** Party guests can search and add YouTube songs directly from their smartphones on port `5555`.
+  - **Offline Only Mode:** Locks YouTube search on PiKaraoke by setting `admin_password` in `config.ini`, restricting guests to sing only songs already saved on the local hard drive.
+- **Default Video Quality:** Persistent setting (360p, 480p, 720p, 1080p) stored in `/mnt/external_hd/karaoke/data/system_settings.json` that survives reboots.
+- **Hardware Telemetry:** Real-time readings of CPU temperature (color-coded thresholds), RAM usage, external drive free space, system uptime, and total local song count.
+- **Safe Power Controls:** Dedicated buttons to cleanly reboot or power off the Raspberry Pi, complete with confirmation dialogs.
+
+### Tab 3: Wi-Fi Management (`#tab-wifi`)
+- **Current Status:** Displays connected SSID, IP address, wireless interface (`wlan0`), and signal strength.
+- **Access Point Scanner:** Scans visible networks using NetworkManager (`nmcli`), automatically deduplicating mesh BSSIDs.
+- **Venue Wi-Fi Provisioning:** Connects to the venue network with **Priority 50**, automatically saving credentials for future boot cycles.
+
+---
+
+## 2. Connection Lifecycle & Priority Model
+
+KaraokeZero uses NetworkManager to handle network transitions using a two-tier priority model:
 
 ```
 +-------------------------------------------------------------+
@@ -38,27 +64,12 @@ KaraokeZero uses NetworkManager (`nmcli`) to handle network transitions using a 
          |
          v
 +-------------------------------------------------------+
-| 1. Web client fetches available SSIDs via:            |
-|    nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY dev wifi   |
-| 2. User selects SSID and submits credentials          |
+| 1. Admin scans nearby networks in Wi-Fi tab           |
+| 2. Submits venue credentials                          |
 | 3. Service provisions connection with Priority 50     |
-| 4. NetworkManager switches to the venue Wi-Fi         |
+| 4. NetworkManager associates with the venue network   |
 +-------------------------------------------------------+
 ```
-
-### Connection Strategy
-1. **Fallback Admin Hotspot (Priority 100):** If no recognized venue Wi-Fi is reachable, the device connects to an administrator's mobile hotspot. This ensures the appliance remains reachable for configuration anywhere.
-2. **Venue Wi-Fi (Priority 50):** When credentials for the local venue network are submitted through the web UI, NetworkManager creates or updates a connection profile with priority 50.
-3. **Seamless Migration:** Once the venue network connects, the device receives an IP address on the local network, allowing attendees to access PiKaraoke directly.
-
----
-
-## 2. Design Considerations & Implementation Details
-
-- **Zero Remote Dependencies:** The onboarding web interface contains no external CDN references. All styles and scripts are embedded directly into the HTML template. If the device connects to an access point with no active internet connection, the UI loads immediately without waiting for timed-out external asset requests.
-- **Process Memory Footprint:** The web service is implemented with Flask and standard library modules, typically consuming between 15 MB and 20 MB of resident memory.
-- **Safe Command Execution:** Network operations interact with `nmcli` via argument arrays with `shell=False`. This eliminates the risk of command injection vulnerabilities from crafted SSID or passphrase inputs.
-- **BSSID Deduplication:** Venue environments often deploy multi-node mesh networks or range extenders broadcasting identical SSIDs. The parser aggregates duplicate SSIDs and presents only the entry with the strongest signal to simplify user selection.
 
 ---
 
@@ -98,7 +109,7 @@ On Debian or Raspberry Pi OS:
 
 ```bash
 sudo apt update
-sudo apt install -y python3-flask network-manager
+sudo apt install -y python3-flask network-manager yt-dlp python3-psutil
 ```
 
 ### Running Manually
@@ -114,17 +125,23 @@ By default, the server binds to `0.0.0.0:8888`. Environment variables can overri
 PORT=8080 HOST=127.0.0.1 python3 app.py
 ```
 
-### Systemd Service Configuration
-To run the Wi-Fi Manager as a persistent system service:
+### Running Unit Tests
 
 ```bash
-sudo cp ../systemd/wifi_manager.service /etc/systemd/system/
+python3 -m unittest discover -s . -p "test_*.py"
+```
+
+### Systemd Service Configuration
+To run the Admin Panel as a persistent system service:
+
+```bash
+sudo cp ../systemd/admin_panel.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable wifi_manager.service
-sudo systemctl start wifi_manager.service
+sudo systemctl enable admin_panel.service
+sudo systemctl start admin_panel.service
 ```
 
 Check status and operational logs:
 ```bash
-journalctl -u wifi_manager.service -f
+journalctl -u admin_panel.service -f
 ```
