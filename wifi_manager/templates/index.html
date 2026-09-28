@@ -2,23 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>KaraokeZero - Wi-Fi Manager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>KaraokeZero - Admin & System Settings</title>
   <style>
     :root {
-      --bg-dark: #0a0c13;
-      --card-bg: rgba(22, 27, 40, 0.85);
+      --bg-dark: #090b12;
+      --card-bg: rgba(18, 22, 36, 0.85);
       --card-border: rgba(255, 255, 255, 0.08);
-      --text-main: #f1f5f9;
+      --text-main: #f8fafc;
       --text-muted: #94a3b8;
       --accent-purple: #8b5cf6;
-      --accent-purple-glow: rgba(139, 92, 246, 0.4);
+      --accent-purple-glow: rgba(139, 92, 246, 0.35);
       --accent-cyan: #06b6d4;
-      --accent-cyan-glow: rgba(6, 182, 212, 0.35);
+      --accent-cyan-glow: rgba(6, 182, 212, 0.3);
       --status-green: #10b981;
+      --status-green-glow: rgba(16, 185, 129, 0.25);
       --status-red: #f43f5e;
-      --btn-hover: #7c3aed;
-      --input-bg: #111420;
+      --status-amber: #f59e0b;
+      --input-bg: #111422;
+      --nav-height: 68px;
     }
 
     * {
@@ -31,21 +33,24 @@
 
     body {
       background-color: var(--bg-dark);
-      background-image: 
-        radial-gradient(circle at 10% 20%, rgba(139, 92, 246, 0.12) 0%, transparent 40%),
-        radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.10) 0%, transparent 40%);
+      background-image:
+        radial-gradient(circle at 15% 15%, rgba(139, 92, 246, 0.15) 0%, transparent 45%),
+        radial-gradient(circle at 85% 85%, rgba(6, 182, 212, 0.12) 0%, transparent 45%),
+        radial-gradient(circle at 50% 50%, rgba(236, 72, 153, 0.05) 0%, transparent 60%);
+      background-attachment: fixed;
       color: var(--text-main);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 16px;
       line-height: 1.5;
+      padding-bottom: calc(var(--nav-height) + 24px);
     }
 
     .container {
       width: 100%;
-      max-width: 480px;
+      max-width: 520px;
+      padding: 16px;
       display: flex;
       flex-direction: column;
       gap: 16px;
@@ -56,200 +61,760 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 8px 4px;
+      padding: 4px 4px 8px;
     }
 
     .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
     }
 
     .brand-icon {
-      width: 36px;
-      height: 36px;
+      width: 42px;
+      height: 42px;
       background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan));
-      border-radius: 10px;
+      border-radius: 12px;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 0 15px var(--accent-purple-glow);
+      box-shadow: 0 4px 20px var(--accent-purple-glow);
+      color: #fff;
     }
 
     .brand-title h1 {
-      font-size: 1.25rem;
+      font-size: 1.35rem;
       font-weight: 800;
       letter-spacing: -0.5px;
-      background: linear-gradient(to right, #ffffff, #cbd5e1);
+      background: linear-gradient(120deg, #ffffff 40%, #c4b5fd 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
 
     .brand-title p {
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       color: var(--accent-cyan);
       text-transform: uppercase;
       font-weight: 700;
-      letter-spacing: 1px;
+      letter-spacing: 1.2px;
     }
 
-    .tag-badge {
-      font-size: 0.7rem;
-      background: rgba(139, 92, 246, 0.2);
-      border: 1px solid rgba(139, 92, 246, 0.4);
-      color: #c4b5fd;
-      padding: 3px 8px;
-      border-radius: 999px;
+    .header-badge {
+      font-size: 0.72rem;
       font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(22, 27, 40, 0.9);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(8px);
     }
 
-    /* Cards */
+    .header-badge.online {
+      color: var(--status-green);
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+
+    .header-badge.offline {
+      color: var(--status-amber);
+      border-color: rgba(245, 158, 11, 0.3);
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+
+    /* Notification / Toast Banner */
+    .banner {
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 0.82rem;
+      line-height: 1.4;
+      display: none;
+      animation: fadeIn 0.25s ease;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+
+    .banner.info {
+      display: block;
+      background: rgba(6, 182, 212, 0.12);
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      color: #a5f3fc;
+    }
+
+    .banner.success {
+      display: block;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #a7f3d0;
+    }
+
+    .banner.error {
+      display: block;
+      background: rgba(244, 63, 94, 0.12);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      color: #fecdd3;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Glassmorphism Card System */
     .card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
-      border-radius: 16px;
-      padding: 16px;
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    }
-
-    /* Status Card */
-    .status-card {
+      border-radius: 18px;
+      padding: 18px;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 14px;
       position: relative;
       overflow: hidden;
     }
 
-    .status-card::before {
+    .card::before {
       content: "";
       position: absolute;
       top: 0;
       left: 0;
       right: 0;
-      height: 3px;
+      height: 2px;
       background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan));
+      opacity: 0.7;
     }
 
-    .status-header {
+    .card-title-bar {
       display: flex;
       align-items: center;
       justify-content: space-between;
     }
 
-    .status-title {
-      font-size: 0.8rem;
+    .card-title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      background: rgba(139, 92, 246, 0.15);
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent-purple);
+    }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .card-subtitle {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    /* Tab Switcher Logic */
+    .tab-pane {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      animation: tabFadeIn 0.25s ease;
+    }
+
+    .tab-pane.active {
+      display: flex;
+    }
+
+    @keyframes tabFadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Search Input & Button */
+    .search-box {
+      display: flex;
+      gap: 8px;
+    }
+
+    .search-input-wrapper {
+      position: relative;
+      flex: 1;
+      display: flex;
+      align-items: center;
+    }
+
+    .search-input-icon {
+      position: absolute;
+      left: 14px;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .search-input {
+      width: 100%;
+      background: var(--input-bg);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      padding: 13px 14px 13px 42px;
+      font-size: 0.95rem;
+      color: #fff;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .search-input:focus {
+      border-color: var(--accent-purple);
+      box-shadow: 0 0 0 3px var(--accent-purple-glow);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-purple), #6d28d9);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      padding: 0 18px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 14px var(--accent-purple-glow);
+      white-space: nowrap;
+    }
+
+    .btn-primary:active {
+      transform: scale(0.96);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: var(--text-main);
+      border-radius: 12px;
+      padding: 11px 16px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-secondary:active {
+      transform: scale(0.97);
+    }
+
+    .btn-rescan {
+      background: linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(139, 92, 246, 0.15));
+      border: 1px solid rgba(6, 182, 212, 0.35);
+      color: #38bdf8;
+      width: 100%;
+      padding: 12px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 0.88rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-rescan:hover {
+      background: linear-gradient(135deg, rgba(6, 182, 212, 0.25), rgba(139, 92, 246, 0.25));
+      border-color: rgba(6, 182, 212, 0.6);
+      box-shadow: 0 0 16px var(--accent-cyan-glow);
+    }
+
+    .btn-rescan:active {
+      transform: scale(0.98);
+    }
+
+    /* Video Search Results */
+    .results-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 480px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .results-container::-webkit-scrollbar {
+      width: 5px;
+    }
+    .results-container::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+    }
+
+    .video-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      padding: 10px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      transition: all 0.2s ease;
+    }
+
+    .video-card:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(139, 92, 246, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .video-thumb-wrap {
+      width: 96px;
+      height: 54px;
+      flex-shrink: 0;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #111420;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .video-thumb {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .thumb-fallback {
+      display: none;
+      color: var(--text-muted);
+    }
+
+    .video-duration {
+      position: absolute;
+      bottom: 3px;
+      right: 4px;
+      background: rgba(0, 0, 0, 0.8);
+      color: #fff;
+      font-size: 0.65rem;
+      padding: 1px 4px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .video-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .video-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #fff;
+      line-height: 1.25;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .video-uploader {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .btn-download-song {
+      background: rgba(139, 92, 246, 0.18);
+      border: 1px solid rgba(139, 92, 246, 0.4);
+      color: #c4b5fd;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      transition: all 0.2s ease;
+    }
+
+    .btn-download-song:hover {
+      background: var(--accent-purple);
+      color: #fff;
+      box-shadow: 0 2px 10px var(--accent-purple-glow);
+    }
+
+    .btn-download-song:active {
+      transform: scale(0.95);
+    }
+
+    /* Downloads List & Progress */
+    .downloads-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+
+    .download-item {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .download-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .download-title {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+
+    .download-badge {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 2px 8px;
+      border-radius: 6px;
+      flex-shrink: 0;
+    }
+
+    .download-badge.queued {
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: var(--status-amber);
+    }
+
+    .download-badge.downloading {
+      background: rgba(6, 182, 212, 0.15);
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      color: var(--accent-cyan);
+    }
+
+    .download-badge.completed {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: var(--status-green);
+    }
+
+    .download-badge.error {
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      color: var(--status-red);
+    }
+
+    .progress-bar-bg {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan));
+      border-radius: 999px;
+      transition: width 0.3s ease;
+    }
+
+    .download-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    /* Option Cards & Selectors (System Tab) */
+    .option-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .option-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 14px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+
+    .option-card:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.18);
+    }
+
+    .option-card.selected {
+      background: rgba(139, 92, 246, 0.12);
+      border-color: var(--accent-purple);
+      box-shadow: 0 0 14px var(--accent-purple-glow);
+    }
+
+    .option-radio {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .option-card.selected .option-radio {
+      border-color: var(--accent-purple);
+    }
+
+    .option-card.selected .option-radio::after {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-purple);
+    }
+
+    .option-title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .option-desc {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      line-height: 1.35;
+    }
+
+    /* Quality Pills (Segmented) */
+    .quality-selector {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      background: rgba(0, 0, 0, 0.25);
+      padding: 4px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .quality-pill {
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      padding: 10px 0;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.2s ease;
+    }
+
+    .quality-pill.active {
+      background: linear-gradient(135deg, var(--accent-purple), #6d28d9);
+      color: #fff;
+      box-shadow: 0 2px 10px var(--accent-purple-glow);
+    }
+
+    .quality-note {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Diagnostics Grid */
+    .diag-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .diag-item {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .diag-label {
+      font-size: 0.7rem;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: var(--text-muted);
       font-weight: 600;
     }
 
-    .status-indicator {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      padding: 3px 10px;
-      border-radius: 999px;
-    }
-
-    .status-indicator.connected {
-      background: rgba(16, 185, 129, 0.15);
-      color: var(--status-green);
-      border: 1px solid rgba(16, 185, 129, 0.3);
-    }
-
-    .status-indicator.disconnected {
-      background: rgba(244, 63, 94, 0.15);
-      color: var(--status-red);
-      border: 1px solid rgba(244, 63, 94, 0.3);
-    }
-
-    .dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background-color: currentColor;
-    }
-
-    .status-details {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      padding-top: 4px;
-    }
-
-    .network-name {
+    .diag-value {
       font-size: 1.15rem;
       font-weight: 700;
       color: #fff;
-      white-space: nowrap;
+    }
+
+    .diag-value.temp-normal { color: var(--status-green); }
+    .diag-value.temp-warm { color: var(--status-amber); }
+    .diag-value.temp-hot { color: var(--status-red); }
+
+    .diag-bar-bg {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      margin-top: 4px;
       overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 250px;
     }
 
-    .ip-address {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      font-family: monospace;
-      margin-top: 2px;
+    .diag-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--accent-cyan);
     }
 
-    /* Actions Bar */
-    .section-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 12px;
+    /* Power Actions (Danger Zone) */
+    .power-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
     }
 
-    .section-title {
-      font-size: 0.95rem;
+    .btn-power-reboot {
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: #fbbf24;
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 0.85rem;
       font-weight: 700;
-      color: var(--text-main);
-    }
-
-    .btn-scan {
-      background: linear-gradient(135deg, var(--accent-purple), #6d28d9);
-      color: white;
-      border: none;
-      padding: 8px 14px;
-      border-radius: 10px;
-      font-size: 0.8rem;
-      font-weight: 600;
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 6px;
+      justify-content: center;
+      gap: 8px;
       transition: all 0.2s ease;
-      box-shadow: 0 2px 10px var(--accent-purple-glow);
     }
 
-    .btn-scan:active {
-      transform: scale(0.96);
+    .btn-power-reboot:hover {
+      background: rgba(245, 158, 11, 0.25);
+      border-color: rgba(245, 158, 11, 0.6);
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.25);
     }
 
-    .btn-scan.scanning svg {
-      animation: spin 1s linear infinite;
+    .btn-power-reboot:active {
+      transform: scale(0.97);
     }
 
-    @keyframes spin {
-      100% { transform: rotate(360deg); }
+    .btn-power-shutdown {
+      background: rgba(244, 63, 94, 0.12);
+      border: 1px solid rgba(244, 63, 94, 0.35);
+      color: #fda4af;
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
     }
 
-    /* Wi-Fi List */
+    .btn-power-shutdown:hover {
+      background: rgba(244, 63, 94, 0.25);
+      border-color: rgba(244, 63, 94, 0.6);
+      box-shadow: 0 0 12px rgba(244, 63, 94, 0.25);
+    }
+
+    .btn-power-shutdown:active {
+      transform: scale(0.97);
+    }
+
+    /* Wi-Fi Tab Styles */
+    .status-card-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
     .wifi-list {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      max-height: 48vh;
+      max-height: 380px;
       overflow-y: auto;
-      padding-right: 2px;
+      padding-right: 4px;
     }
 
     .wifi-list::-webkit-scrollbar {
@@ -350,6 +915,14 @@
       height: 15px;
     }
 
+    .spinning {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
+
     .empty-state {
       text-align: center;
       padding: 32px 16px;
@@ -357,7 +930,80 @@
       font-size: 0.85rem;
     }
 
-    /* Modal / Bottom Sheet */
+    /* Fixed Bottom Navigation Bar */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: var(--nav-height);
+      background: rgba(10, 12, 20, 0.92);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      z-index: 50;
+      padding-bottom: env(safe-area-inset-bottom);
+      box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+    }
+
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      color: var(--text-muted);
+      text-decoration: none;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      height: 100%;
+      position: relative;
+      transition: color 0.2s ease;
+    }
+
+    .nav-item svg {
+      transition: transform 0.2s ease, stroke 0.2s ease;
+    }
+
+    .nav-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+
+    .nav-item.active {
+      color: #fff;
+    }
+
+    .nav-item.active svg {
+      stroke: var(--accent-cyan);
+      transform: translateY(-2px);
+    }
+
+    .nav-item.active .nav-label {
+      background: linear-gradient(120deg, var(--accent-cyan), #a5f3fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      font-weight: 700;
+    }
+
+    .nav-item.active::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      width: 44px;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan));
+      border-radius: 0 0 4px 4px;
+      box-shadow: 0 2px 10px var(--accent-cyan-glow);
+    }
+
+    /* Modal System */
     .modal-backdrop {
       position: fixed;
       top: 0;
@@ -365,8 +1011,8 @@
       right: 0;
       bottom: 0;
       background: rgba(0, 0, 0, 0.75);
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
       display: none;
       align-items: flex-end;
       justify-content: center;
@@ -374,21 +1020,19 @@
       animation: fadeIn 0.2s ease;
     }
 
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
     .modal-content {
-      background: #141724;
+      background: #131726;
       border: 1px solid var(--card-border);
-      border-top-left-radius: 20px;
-      border-top-right-radius: 20px;
+      border-top-left-radius: 24px;
+      border-top-right-radius: 24px;
       width: 100%;
-      max-width: 480px;
+      max-width: 520px;
       padding: 24px 20px;
-      box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.6);
+      box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.7);
       animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
     }
 
     @keyframes slideUp {
@@ -400,11 +1044,10 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
     }
 
     .modal-title {
-      font-size: 1.1rem;
+      font-size: 1.15rem;
       font-weight: 700;
       color: #fff;
     }
@@ -417,16 +1060,21 @@
       padding: 4px;
     }
 
-    .input-group {
-      margin-bottom: 16px;
+    .modal-body {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      line-height: 1.45;
     }
 
-    .input-label {
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      margin-bottom: 6px;
-      display: block;
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .modal-actions button {
+      flex: 1;
+      padding: 13px;
     }
 
     .input-wrapper {
@@ -439,179 +1087,448 @@
       width: 100%;
       background: var(--input-bg);
       border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 10px;
-      padding: 12px 42px 12px 14px;
+      border-radius: 12px;
+      padding: 12px 44px 12px 14px;
       font-size: 1rem;
       color: #fff;
       outline: none;
-      transition: border-color 0.2s;
     }
 
     .input-field:focus {
       border-color: var(--accent-purple);
-      box-shadow: 0 0 0 2px var(--accent-purple-glow);
+      box-shadow: 0 0 0 3px var(--accent-purple-glow);
     }
 
     .toggle-pwd {
       position: absolute;
       right: 12px;
-      background: none;
+      background: transparent;
       border: none;
       color: var(--text-muted);
       cursor: pointer;
       padding: 4px;
     }
 
-    .modal-actions {
-      display: flex;
-      gap: 10px;
-      margin-top: 20px;
-    }
-
-    .btn-primary {
-      flex: 1;
-      background: linear-gradient(135deg, var(--accent-purple), #6d28d9);
-      color: #fff;
-      border: none;
-      border-radius: 12px;
-      padding: 14px;
-      font-size: 0.95rem;
-      font-weight: 700;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      box-shadow: 0 4px 14px var(--accent-purple-glow);
-    }
-
-    .btn-secondary {
-      background: rgba(255, 255, 255, 0.06);
-      color: var(--text-muted);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 12px;
-      padding: 14px 18px;
-      font-size: 0.95rem;
-      font-weight: 600;
-      cursor: pointer;
-    }
-
-    /* Notification Banner */
-    .banner {
-      display: none;
-      padding: 12px 14px;
-      border-radius: 12px;
-      font-size: 0.85rem;
-      margin-top: 8px;
-      animation: fadeIn 0.2s;
-    }
-
-    .banner.info {
-      display: block;
-      background: rgba(6, 182, 212, 0.12);
-      border: 1px solid rgba(6, 182, 212, 0.3);
-      color: #a5f3fc;
-    }
-
-    .banner.success {
-      display: block;
-      background: rgba(16, 185, 129, 0.12);
-      border: 1px solid rgba(16, 185, 129, 0.3);
-      color: #6ee7b7;
-    }
-
-    .banner.error {
-      display: block;
-      background: rgba(244, 63, 94, 0.12);
-      border: 1px solid rgba(244, 63, 94, 0.3);
-      color: #fca5a5;
-    }
-
-    /* Footer Note */
-    footer {
-      text-align: center;
+    .footer-note {
       font-size: 0.72rem;
-      color: #64748b;
-      margin-top: 12px;
+      color: rgba(255, 255, 255, 0.35);
+      text-align: center;
+      margin-top: 8px;
     }
   </style>
 </head>
 <body>
 
   <div class="container">
-    <!-- Header -->
+    <!-- Brand Header -->
     <header>
       <div class="brand">
         <div class="brand-icon">
-          <!-- Mic / Music SVG -->
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <!-- Microphone SVG -->
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
             <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-            <line x1="12" y1="19" x2="12" y2="23"/>
-            <line x1="8" y1="23" x2="16" y2="23"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
           </svg>
         </div>
         <div class="brand-title">
           <h1>KaraokeZero</h1>
-          <p>Wi-Fi Provisioning</p>
+          <p>System & Admin Portal</p>
         </div>
       </div>
-      <span class="tag-badge">Headless Core</span>
+      <div id="headerStatusBadge" class="header-badge {{ 'online' if current_status and current_status.connected else 'offline' }}">
+        <div class="pulse-dot"></div>
+        <span id="headerStatusText">{{ current_status.ssid if current_status and current_status.connected else 'Offline' }}</span>
+      </div>
     </header>
 
-    <!-- Current Network Status Card -->
-    <div class="card status-card">
-      <div class="status-header">
-        <span class="status-title">Current Connection</span>
-        <div id="statusIndicator" class="status-indicator {{ 'connected' if current_status.connected else 'disconnected' }}">
-          <span class="dot"></span>
-          <span id="statusText">{{ 'Connected' if current_status.connected else 'Disconnected' }}</span>
-        </div>
-      </div>
-
-      <div class="status-details">
-        <div>
-          <div id="currentSSID" class="network-name">
-            {{ current_status.ssid if current_status.ssid else 'No network' }}
-          </div>
-          <div id="currentIP" class="ip-address">
-            IP: {{ current_status.ip_address if current_status.ip_address else 'Waiting for DHCP...' }}
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Alert / Connecting Banner -->
+    <!-- Operational Alert / Banner -->
     <div id="alertBanner" class="banner"></div>
 
-    <!-- Available Networks Section -->
-    <div class="card">
-      <div class="section-header">
-        <span class="section-title">Available Networks</span>
-        <button id="btnScan" class="btn-scan" onclick="scanNetworks(true)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
+    <!-- =================================================================== -->
+    <!-- TAB 1: Song Search & Download                                      -->
+    <!-- =================================================================== -->
+    <section id="tab-songs" class="tab-pane active">
+      <!-- Search Form Card -->
+      <div class="card">
+        <div class="card-title-bar">
+          <div class="card-title-group">
+            <div class="card-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+            </div>
+            <div>
+              <div class="card-title">Search & Download Songs</div>
+              <div class="card-subtitle">Search YouTube for karaoke tracks without stopping playback</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="search-box">
+          <div class="search-input-wrapper">
+            <svg class="search-input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" id="songSearchInput" class="search-input" placeholder="Search song title, artist, or YouTube URL..." autocomplete="off">
+          </div>
+          <button id="btnSearchSongs" class="btn-primary" onclick="searchSongs()">
+            <span id="searchBtnText">Search</span>
+            <svg id="searchSpinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none;" class="spinning">
+              <line x1="12" y1="2" x2="12" y2="6"/>
+              <line x1="12" y1="18" x2="12" y2="22"/>
+              <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/>
+              <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/>
+              <line x1="2" y1="12" x2="6" y2="12"/>
+              <line x1="18" y1="12" x2="22" y2="12"/>
+              <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/>
+              <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Search Results List -->
+        <div id="searchResults" class="results-container">
+          <div class="empty-state">
+            Enter a song or artist name above to find karaoke videos on YouTube.
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Downloads Card -->
+      <div class="card">
+        <div class="card-title-bar">
+          <div class="card-title-group">
+            <div class="card-icon" style="color:var(--accent-cyan); background:rgba(6,182,212,0.15); border-color:rgba(6,182,212,0.25);">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+            </div>
+            <div>
+              <div class="card-title">Downloads & Queue</div>
+              <div class="card-subtitle">Active and recent background download tasks</div>
+            </div>
+          </div>
+          <button class="btn-secondary" style="padding: 6px 10px; font-size: 0.75rem;" onclick="loadDownloads()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            <span>Refresh</span>
+          </button>
+        </div>
+
+        <div id="downloadsList" class="downloads-list">
+          <div class="empty-state">No downloads yet. Search and download a song above.</div>
+        </div>
+      </div>
+
+      <!-- Quick Rescan Action Card -->
+      <div class="card" style="padding:14px;">
+        <button class="btn-rescan" onclick="rescanCatalog(this)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
           </svg>
-          <span id="scanBtnText">Scan</span>
+          <span>Rescan PiKaraoke Song Catalog</span>
         </button>
+        <div style="font-size:0.72rem; color:var(--text-muted); text-align:center;">
+          Refreshes the PiKaraoke catalog so newly downloaded songs appear immediately in search.
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 2: System & PiKaraoke Settings                                 -->
+    <!-- =================================================================== -->
+    <section id="tab-system" class="tab-pane">
+      <!-- PiKaraoke Guest Mode Card -->
+      <div class="card">
+        <div class="card-title-bar">
+          <div class="card-title-group">
+            <div class="card-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="4" y1="21" x2="4" y2="14"/>
+                <line x1="4" y1="10" x2="4" y2="3"/>
+                <line x1="12" y1="21" x2="12" y2="12"/>
+                <line x1="12" y1="8" x2="12" y2="3"/>
+                <line x1="20" y1="21" x2="20" y2="16"/>
+                <line x1="20" y1="12" x2="20" y2="3"/>
+                <line x1="1" y1="14" x2="7" y2="14"/>
+                <line x1="9" y1="8" x2="15" y2="8"/>
+                <line x1="17" y1="16" x2="23" y2="16"/>
+              </svg>
+            </div>
+            <div>
+              <div class="card-title">PiKaraoke Guest Mode</div>
+              <div class="card-subtitle">Control party guest search access on port 5555</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="option-grid">
+          <div id="modeCardOnline" class="option-card {{ 'selected' if not (settings and settings.offline_mode) else '' }}" onclick="setGuestMode(false)">
+            <div class="option-radio"></div>
+            <div class="option-title">Online Mode</div>
+            <div class="option-desc">Guests can search and add YouTube songs directly from their phones.</div>
+          </div>
+          <div id="modeCardOffline" class="option-card {{ 'selected' if settings and settings.offline_mode else '' }}" onclick="setGuestMode(true)">
+            <div class="option-radio"></div>
+            <div class="option-title">Offline Only</div>
+            <div class="option-desc">Guests can only pick songs already downloaded to local storage.</div>
+          </div>
+        </div>
       </div>
 
-      <div id="wifiList" class="wifi-list">
-        <div class="empty-state">Searching for nearby Wi-Fi networks...</div>
-      </div>
-    </div>
+      <!-- Default Download Quality Card -->
+      <div class="card">
+        <div class="card-title-bar">
+          <div class="card-title-group">
+            <div class="card-icon" style="color:var(--accent-cyan); background:rgba(6,182,212,0.15); border-color:rgba(6,182,212,0.25);">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="23 7 16 12 23 17 23 7"/>
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+              </svg>
+            </div>
+            <div>
+              <div class="card-title">Default Video Quality</div>
+              <div class="card-subtitle">Resolution for downloaded YouTube karaoke videos</div>
+            </div>
+          </div>
+        </div>
 
-    <footer>
-      KaraokeZero Appliance • Venue Priority: 50 | Admin: 100
-    </footer>
+        <div class="quality-selector">
+          <button class="quality-pill {{ 'active' if settings and settings.default_video_quality == '360' else '' }}" data-quality="360" onclick="setVideoQuality('360')">360p</button>
+          <button class="quality-pill {{ 'active' if (not settings) or settings.default_video_quality == '480' else '' }}" data-quality="480" onclick="setVideoQuality('480')">480p</button>
+          <button class="quality-pill {{ 'active' if settings and settings.default_video_quality == '720' else '' }}" data-quality="720" onclick="setVideoQuality('720')">720p</button>
+          <button class="quality-pill {{ 'active' if settings and settings.default_video_quality == '1080' else '' }}" data-quality="1080" onclick="setVideoQuality('1080')">1080p</button>
+        </div>
+
+        <div class="quality-note">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--status-green);">
+            <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+          </svg>
+          <span>Audio is always preserved at maximum quality (bestaudio).</span>
+        </div>
+      </div>
+
+      <!-- System & Hardware Diagnostics Card -->
+      <div class="card">
+        <div class="card-title-bar">
+          <div class="card-title-group">
+            <div class="card-icon" style="color:var(--status-green); background:rgba(16,185,129,0.15); border-color:rgba(16,185,129,0.25);">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="4" width="16" height="16" rx="2"/>
+                <rect x="9" y="9" width="6" height="6"/>
+                <line x1="9" y1="1" x2="9" y2="4"/>
+                <line x1="15" y1="1" x2="15" y2="4"/>
+                <line x1="9" y1="20" x2="9" y2="23"/>
+                <line x1="15" y1="20" x2="15" y2="23"/>
+                <line x1="20" y1="9" x2="23" y2="9"/>
+                <line x1="20" y1="15" x2="23" y2="15"/>
+                <line x1="1" y1="9" x2="4" y2="9"/>
+                <line x1="1" y1="15" x2="4" y2="15"/>
+              </svg>
+            </div>
+            <div>
+              <div class="card-title">Hardware Diagnostics</div>
+              <div class="card-subtitle">Real-time appliance metrics and disk usage</div>
+            </div>
+          </div>
+          <button class="btn-secondary" style="padding: 6px 10px; font-size: 0.75rem;" onclick="refreshDiagnostics()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            <span>Refresh</span>
+          </button>
+        </div>
+
+        <div class="diag-grid">
+          <div class="diag-item">
+            <span class="diag-label">CPU Temperature</span>
+            <span id="diagCpuTemp" class="diag-value {{ 'temp-normal' if diagnostics and diagnostics.cpu_temp and diagnostics.cpu_temp < 60 else ('temp-warm' if diagnostics and diagnostics.cpu_temp and diagnostics.cpu_temp < 75 else 'temp-hot') }}">{{ diagnostics.cpu_temp if diagnostics and diagnostics.cpu_temp is not none else '--' }} °C</span>
+          </div>
+          <div class="diag-item">
+            <span class="diag-label">Local Songs</span>
+            <span id="diagSongsCount" class="diag-value">{{ diagnostics.songs_count if diagnostics else 0 }} tracks</span>
+          </div>
+          <div class="diag-item">
+            <span class="diag-label">RAM Usage</span>
+            <span id="diagRamText" class="diag-value" style="font-size:0.95rem;">{{ diagnostics.ram_used_mb if diagnostics else 0 }} / {{ diagnostics.ram_total_mb if diagnostics else 0 }} MB ({{ diagnostics.ram_percent if diagnostics else 0 }}%)</span>
+            <div class="diag-bar-bg">
+              <div id="diagRamBar" class="diag-bar-fill" style="width:{{ diagnostics.ram_percent if diagnostics else 0 }}%;"></div>
+            </div>
+          </div>
+          <div class="diag-item">
+            <span class="diag-label">HD Storage Free</span>
+            <span id="diagDiskText" class="diag-value" style="font-size:0.95rem;">{{ diagnostics.disk_free_gb if diagnostics else 0 }} GB / {{ diagnostics.disk_total_gb if diagnostics else 0 }} GB</span>
+            <div class="diag-bar-bg">
+              <div id="diagDiskBar" class="diag-bar-fill" style="width:{{ diagnostics.disk_percent if diagnostics else 0 }}%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size:0.75rem; color:var(--text-muted); display:flex; justify-content:space-between; padding-top:4px;">
+          <span>System Uptime: <strong id="diagUptime" style="color:#fff;">{{ diagnostics.uptime_str if diagnostics else '--' }}</strong></span>
+          <span>Target: <strong>Raspberry Pi Zero W</strong></span>
+        </div>
+      </div>
+
+      <!-- Power Controls Card -->
+      <div class="card" style="border-color: rgba(244, 63, 94, 0.2);">
+        <div class="card-title-bar">
+          <div class="card-title-group">
+            <div class="card-icon" style="color:var(--status-red); background:rgba(244,63,94,0.15); border-color:rgba(244,63,94,0.25);">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
+                <line x1="12" y1="2" x2="12" y2="12"/>
+              </svg>
+            </div>
+            <div>
+              <div class="card-title">Device Power Controls</div>
+              <div class="card-subtitle">Restart or cleanly shut down the appliance</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="power-actions">
+          <button class="btn-power-reboot" onclick="openRebootModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            <span>Reboot Pi</span>
+          </button>
+          <button class="btn-power-shutdown" onclick="openShutdownModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
+              <line x1="12" y1="2" x2="12" y2="12"/>
+            </svg>
+            <span>Power Off</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 3: Wi-Fi Settings                                              -->
+    <!-- =================================================================== -->
+    <section id="tab-wifi" class="tab-pane">
+      <!-- Active Wi-Fi Connection Card -->
+      <div class="card">
+        <div class="card-title-bar">
+          <div class="card-title-group">
+            <div class="card-icon" style="color:var(--status-green); background:rgba(16,185,129,0.15); border-color:rgba(16,185,129,0.25);">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+                <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+                <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+                <line x1="12" y1="20" x2="12.01" y2="20"/>
+              </svg>
+            </div>
+            <div>
+              <div class="card-title">Network Status</div>
+              <div class="card-subtitle">Current wireless interface connection</div>
+            </div>
+          </div>
+          <div id="wifiStatusBadge" class="header-badge {{ 'online' if current_status and current_status.connected else 'offline' }}">
+            <div class="pulse-dot"></div>
+            <span id="wifiStatusText">{{ 'Connected' if current_status and current_status.connected else 'Disconnected' }}</span>
+          </div>
+        </div>
+
+        <div class="status-card-inner">
+          <div>
+            <div id="currentSSID" style="font-size:1.15rem; font-weight:700; color:#fff;">{{ current_status.ssid if current_status and current_status.connected else 'No Network Connected' }}</div>
+            <div id="currentIP" style="font-size:0.8rem; color:var(--text-muted); font-family:monospace; margin-top:2px;">IP: {{ current_status.ip_address if current_status and current_status.ip_address else 'Not assigned' }}</div>
+          </div>
+          <div id="currentSignalBars" class="wifi-signal" style="transform: scale(1.3); margin-right:8px;"></div>
+        </div>
+      </div>
+
+      <!-- Visible Networks Card -->
+      <div class="card">
+        <div class="card-title-bar">
+          <div class="card-title-group">
+            <div class="card-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="2"/>
+                <path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/>
+              </svg>
+            </div>
+            <div>
+              <div class="card-title">Nearby Networks</div>
+              <div class="card-subtitle">Connect to venue Wi-Fi (Priority 50)</div>
+            </div>
+          </div>
+          <button id="btnScanWifi" class="btn-primary" style="padding: 8px 14px; font-size: 0.8rem;" onclick="scanNetworks(true)">
+            <svg id="scanWifiIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            <span id="scanWifiText">Scan</span>
+          </button>
+        </div>
+
+        <div id="wifiList" class="wifi-list">
+          <div class="empty-state">Searching for nearby Wi-Fi networks...</div>
+        </div>
+      </div>
+
+      <div class="footer-note">
+        KaraokeZero Appliance • Priority 100: Admin Hotspot | Priority 50: Venue Wi-Fi
+      </div>
+    </section>
   </div>
 
-  <!-- Password Entry Modal -->
+  <!-- =================================================================== -->
+  <!-- Fixed Bottom Navigation Bar                                         -->
+  <!-- =================================================================== -->
+  <nav class="bottom-nav">
+    <button id="nav-songs" class="nav-item active" onclick="switchTab('songs')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 18V5l12-2v13"/>
+        <circle cx="6" cy="18" r="3"/>
+        <circle cx="18" cy="16" r="3"/>
+      </svg>
+      <span class="nav-label">Songs</span>
+    </button>
+    <button id="nav-system" class="nav-item" onclick="switchTab('system')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="4" y1="21" x2="4" y2="14"/>
+        <line x1="4" y1="10" x2="4" y2="3"/>
+        <line x1="12" y1="21" x2="12" y2="12"/>
+        <line x1="12" y1="8" x2="12" y2="3"/>
+        <line x1="20" y1="21" x2="20" y2="16"/>
+        <line x1="20" y1="12" x2="20" y2="3"/>
+        <line x1="1" y1="14" x2="7" y2="14"/>
+        <line x1="9" y1="8" x2="15" y2="8"/>
+        <line x1="17" y1="16" x2="23" y2="16"/>
+      </svg>
+      <span class="nav-label">System</span>
+    </button>
+    <button id="nav-wifi" class="nav-item" onclick="switchTab('wifi')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+        <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+        <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+        <line x1="12" y1="20" x2="12.01" y2="20"/>
+      </svg>
+      <span class="nav-label">Wi-Fi</span>
+    </button>
+  </nav>
+
+  <!-- =================================================================== -->
+  <!-- Modals                                                             -->
+  <!-- =================================================================== -->
+
+  <!-- Wi-Fi Connect Modal -->
   <div id="connectModal" class="modal-backdrop">
     <div class="modal-content">
       <div class="modal-header">
         <h3 id="modalSSID" class="modal-title">Connect to Network</h3>
-        <button class="modal-close" onclick="closeModal()">
+        <button class="modal-close" onclick="closeConnectModal()">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="18" y1="6" x2="6" y2="18"/>
             <line x1="6" y1="6" x2="18" y2="18"/>
@@ -619,8 +1536,8 @@
         </button>
       </div>
 
-      <div id="passwordSection" class="input-group">
-        <label for="wifiPassword" class="input-label">Wi-Fi Password</label>
+      <div id="passwordSection">
+        <label for="wifiPassword" style="font-size:0.8rem; font-weight:600; color:var(--text-muted); margin-bottom:6px; display:block;">Network Password</label>
         <div class="input-wrapper">
           <input type="password" id="wifiPassword" class="input-field" placeholder="Enter password..." autocomplete="off">
           <button type="button" class="toggle-pwd" onclick="togglePasswordVisibility()">
@@ -632,28 +1549,492 @@
         </div>
       </div>
 
-      <div id="modalNotice" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">
-        This network will be registered with priority 50 (Venue Wi-Fi) for automatic connection on boot.
+      <div class="modal-body" style="font-size:0.75rem;">
+        This network will be stored with Priority 50 (Venue Wi-Fi) and automatically connected on boot.
       </div>
 
       <div class="modal-actions">
-        <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn-secondary" onclick="closeConnectModal()">Cancel</button>
         <button id="btnConfirmConnect" class="btn-primary" onclick="submitConnection()">
           <span>Connect</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="9 18 15 12 9 6"/>
-          </svg>
         </button>
       </div>
     </div>
   </div>
 
-  <script>
-    let selectedNetwork = null;
-    let isConnecting = false;
-    let pollInterval = null;
+  <!-- Reboot Confirmation Modal -->
+  <div id="rebootModal" class="modal-backdrop">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" style="color:var(--status-amber); display:flex; align-items:center; gap:8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          Reboot System?
+        </h3>
+        <button class="modal-close" onclick="closeRebootModal()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        Are you sure you want to reboot the Raspberry Pi? All active playback and services will restart and will be unavailable for approximately 60 seconds.
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeRebootModal()">Cancel</button>
+        <button class="btn-primary" style="background:var(--status-amber); color:#000;" onclick="confirmReboot()">Yes, Reboot</button>
+      </div>
+    </div>
+  </div>
 
-    // Build signal bars (1 to 4)
+  <!-- Shutdown Confirmation Modal -->
+  <div id="shutdownModal" class="modal-backdrop">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" style="color:var(--status-red); display:flex; align-items:center; gap:8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
+            <line x1="12" y1="2" x2="12" y2="12"/>
+          </svg>
+          Shut Down System?
+        </h3>
+        <button class="modal-close" onclick="closeShutdownModal()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        Are you sure you want to shut down KaraokeZero? External storage will be unmounted safely. Power can be safely unplugged once the device activity LED turns off.
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeShutdownModal()">Cancel</button>
+        <button class="btn-primary" style="background:var(--status-red);" onclick="confirmShutdown()">Yes, Shut Down</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================================================================== -->
+  <!-- JavaScript Application Logic                                       -->
+  <!-- =================================================================== -->
+  <script>
+    // State
+    let currentSettings = {
+      default_video_quality: '{{ settings.default_video_quality if settings else "480" }}',
+      offline_mode: {{ 'true' if settings and settings.offline_mode else 'false' }}
+    };
+    let selectedWifiNetwork = null;
+    let isConnectingWifi = false;
+    let wifiPollInterval = null;
+    let downloadsPollInterval = null;
+
+    // Toast / Banner Helper
+    function showToast(message, type = 'info', timeout = 5000) {
+      const banner = document.getElementById('alertBanner');
+      banner.className = `banner ${type}`;
+      banner.innerHTML = message;
+      banner.style.display = 'block';
+      if (timeout > 0) {
+        setTimeout(() => {
+          if (banner.innerHTML === message) {
+            banner.style.display = 'none';
+          }
+        }, timeout);
+      }
+    }
+
+    // HTML Escape Helper
+    function escapeHtml(text) {
+      if (!text) return '';
+      return String(text).replace(/[&<>"']/g, m => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+      })[m]);
+    }
+
+    // Tab Navigation
+    function switchTab(tabId) {
+      const panes = document.querySelectorAll('.tab-pane');
+      panes.forEach(pane => pane.classList.remove('active'));
+
+      const navs = document.querySelectorAll('.nav-item');
+      navs.forEach(nav => nav.classList.remove('active'));
+
+      const activePane = document.getElementById(`tab-${tabId}`);
+      const activeNav = document.getElementById(`nav-${tabId}`);
+
+      if (activePane) activePane.classList.add('active');
+      if (activeNav) activeNav.classList.add('active');
+
+      window.location.hash = tabId;
+
+      if (tabId === 'wifi') {
+        scanNetworks(false);
+      } else if (tabId === 'system') {
+        refreshDiagnostics();
+      } else if (tabId === 'songs') {
+        loadDownloads();
+      }
+    }
+
+    // =========================================================================
+    // 1. Song Search & Download Logic
+    // =========================================================================
+
+    async function searchSongs() {
+      const query = document.getElementById('songSearchInput').value.trim();
+      const resultsContainer = document.getElementById('searchResults');
+      const searchBtn = document.getElementById('btnSearchSongs');
+      const searchBtnText = document.getElementById('searchBtnText');
+      const spinner = document.getElementById('searchSpinner');
+
+      if (!query) {
+        showToast('Please enter a song title or artist to search.', 'error');
+        return;
+      }
+
+      searchBtn.disabled = true;
+      searchBtnText.innerText = 'Searching...';
+      spinner.style.display = 'inline-block';
+      resultsContainer.innerHTML = '<div class="empty-state">Searching YouTube for karaoke tracks (this takes 10-15s)...</div>';
+
+      try {
+        const res = await fetch(`/api/songs/search?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+
+        if (data.success && data.results && data.results.length > 0) {
+          resultsContainer.innerHTML = '';
+          data.results.forEach(video => {
+            const card = document.createElement('div');
+            card.className = 'video-card';
+
+            const safeTitle = escapeHtml(video.title);
+            const safeUploader = escapeHtml(video.uploader);
+            const safeDuration = escapeHtml(video.duration || '');
+            const safeUrl = escapeHtml(video.url);
+
+            card.innerHTML = `
+              <div class="video-thumb-wrap">
+                <img class="video-thumb" src="${escapeHtml(video.thumbnail)}" alt="Thumb" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                <svg class="thumb-fallback" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+                </svg>
+                ${safeDuration ? `<span class="video-duration">${safeDuration}</span>` : ''}
+              </div>
+              <div class="video-info">
+                <div class="video-title" title="${safeTitle}">${safeTitle}</div>
+                <div class="video-uploader">${safeUploader}</div>
+              </div>
+              <button class="btn-download-song" onclick="startDownload('${safeUrl}', '${safeTitle.replace(/'/g, "\\'")}', this)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                <span>Download</span>
+              </button>
+            `;
+            resultsContainer.appendChild(card);
+          });
+        } else {
+          resultsContainer.innerHTML = '<div class="empty-state">No karaoke results found for this search. Try different terms.</div>';
+        }
+      } catch (err) {
+        console.error('Song search error:', err);
+        resultsContainer.innerHTML = '<div class="empty-state">Search request failed. Please check internet connection.</div>';
+      } finally {
+        searchBtn.disabled = false;
+        searchBtnText.innerText = 'Search';
+        spinner.style.display = 'none';
+      }
+    }
+
+    document.getElementById('songSearchInput').addEventListener('keyup', (e) => {
+      if (e.key === 'Enter') searchSongs();
+    });
+
+    async function startDownload(url, title, btnEl) {
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.innerHTML = '<span>Queuing...</span>';
+      }
+
+      try {
+        const quality = currentSettings.default_video_quality || '480';
+        const res = await fetch('/api/songs/download', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, title, quality })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          showToast(`Download started for "${escapeHtml(title)}" (${quality}p, Best Audio)`, 'success');
+          if (btnEl) {
+            btnEl.innerHTML = '<span>Added ✓</span>';
+          }
+          loadDownloads();
+          ensureDownloadsPolling();
+        } else {
+          showToast(`Error: ${data.error || 'Failed to start download.'}`, 'error');
+          if (btnEl) {
+            btnEl.disabled = false;
+            btnEl.innerHTML = '<span>Download</span>';
+          }
+        }
+      } catch (err) {
+        console.error('Download error:', err);
+        showToast('Failed to queue download. Connection error.', 'error');
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.innerHTML = '<span>Download</span>';
+        }
+      }
+    }
+
+    async function loadDownloads() {
+      const container = document.getElementById('downloadsList');
+      try {
+        const res = await fetch('/api/songs/downloads');
+        const data = await res.json();
+
+        if (data.success && data.tasks && data.tasks.length > 0) {
+          container.innerHTML = '';
+          let hasActive = false;
+
+          data.tasks.forEach(t => {
+            if (t.status === 'queued' || t.status === 'downloading') {
+              hasActive = true;
+            }
+
+            const item = document.createElement('div');
+            item.className = 'download-item';
+
+            const safeTitle = escapeHtml(t.title);
+            const statusClass = t.status;
+            const progress = Math.min(100, Math.max(0, t.progress || 0));
+
+            let metaInfo = '';
+            if (t.status === 'downloading') {
+              metaInfo = `<span>${progress.toFixed(1)}%</span><span>${t.speed || ''} ${t.eta ? `• ETA: ${t.eta}` : ''}</span>`;
+            } else if (t.status === 'completed') {
+              metaInfo = `<span>100% Complete</span><span style="color:var(--status-green);">Saved to library</span>`;
+            } else if (t.status === 'error') {
+              metaInfo = `<span style="color:var(--status-red);">${escapeHtml(t.error || 'Download failed')}</span>`;
+            } else {
+              metaInfo = `<span>Waiting in queue...</span>`;
+            }
+
+            item.innerHTML = `
+              <div class="download-header">
+                <div class="download-title" title="${safeTitle}">${safeTitle}</div>
+                <span class="download-badge ${statusClass}">${statusClass} (${t.quality}p)</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" style="width:${progress}%;"></div>
+              </div>
+              <div class="download-meta">
+                ${metaInfo}
+              </div>
+            `;
+            container.appendChild(item);
+          });
+
+          if (!hasActive && downloadsPollInterval) {
+            clearInterval(downloadsPollInterval);
+            downloadsPollInterval = null;
+          }
+        } else {
+          container.innerHTML = '<div class="empty-state">No downloads yet. Search and download a song above.</div>';
+        }
+      } catch (err) {
+        console.warn('Failed to load downloads:', err);
+      }
+    }
+
+    function ensureDownloadsPolling() {
+      if (!downloadsPollInterval) {
+        downloadsPollInterval = setInterval(loadDownloads, 2500);
+      }
+    }
+
+    async function rescanCatalog(btn) {
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span>Updating Catalog...</span>';
+      }
+
+      showToast('Refreshing PiKaraoke song catalog...', 'info');
+
+      try {
+        const res = await fetch('/api/pikaraoke/rescan', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('PiKaraoke library updated successfully!', 'success');
+          refreshDiagnostics();
+        } else {
+          showToast(`Error: ${data.error || 'Failed to update library.'}`, 'error');
+        }
+      } catch (err) {
+        showToast('Library rescan failed. Verify service status.', 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            <span>Rescan PiKaraoke Song Catalog</span>
+          `;
+        }
+      }
+    }
+
+    // =========================================================================
+    // 2. System & PiKaraoke Settings Logic
+    // =========================================================================
+
+    function renderSettingsUI() {
+      const onlineCard = document.getElementById('modeCardOnline');
+      const offlineCard = document.getElementById('modeCardOffline');
+      if (currentSettings.offline_mode) {
+        offlineCard.classList.add('selected');
+        onlineCard.classList.remove('selected');
+      } else {
+        onlineCard.classList.add('selected');
+        offlineCard.classList.remove('selected');
+      }
+
+      const pills = document.querySelectorAll('.quality-pill');
+      pills.forEach(pill => {
+        if (pill.getAttribute('data-quality') === String(currentSettings.default_video_quality)) {
+          pill.classList.add('active');
+        } else {
+          pill.classList.remove('active');
+        }
+      });
+    }
+
+    async function setGuestMode(isOffline) {
+      currentSettings.offline_mode = isOffline;
+      renderSettingsUI();
+
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ offline_mode: isOffline })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(
+            isOffline
+              ? 'PiKaraoke set to Offline Mode. Guests can only sing downloaded local songs.'
+              : 'PiKaraoke set to Online Mode. Guests can search and add songs from YouTube.',
+            'success'
+          );
+        }
+      } catch (err) {
+        showToast('Failed to update guest mode setting.', 'error');
+      }
+    }
+
+    async function setVideoQuality(quality) {
+      currentSettings.default_video_quality = quality;
+      renderSettingsUI();
+
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ default_video_quality: quality })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Default video quality set to ${quality}p (Best Audio).`, 'success');
+        }
+      } catch (err) {
+        showToast('Failed to update video quality setting.', 'error');
+      }
+    }
+
+    async function refreshDiagnostics() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+
+        if (data.success && data.diagnostics) {
+          const d = data.diagnostics;
+
+          const tempEl = document.getElementById('diagCpuTemp');
+          if (d.cpu_temp !== null) {
+            tempEl.innerText = `${d.cpu_temp} °C`;
+            tempEl.className = 'diag-value ' + (d.cpu_temp < 60 ? 'temp-normal' : d.cpu_temp < 75 ? 'temp-warm' : 'temp-hot');
+          } else {
+            tempEl.innerText = 'N/A';
+          }
+
+          document.getElementById('diagSongsCount').innerText = `${d.songs_count} tracks`;
+          document.getElementById('diagRamText').innerText = `${d.ram_used_mb} / ${d.ram_total_mb} MB (${d.ram_percent}%)`;
+          document.getElementById('diagRamBar').style.width = `${Math.min(100, d.ram_percent)}%`;
+
+          document.getElementById('diagDiskText').innerText = `${d.disk_free_gb} GB / ${d.disk_total_gb} GB`;
+          document.getElementById('diagDiskBar').style.width = `${Math.min(100, d.disk_percent)}%`;
+
+          document.getElementById('diagUptime').innerText = d.uptime_str || '--';
+        }
+
+        if (data.success && data.settings) {
+          currentSettings = data.settings;
+          renderSettingsUI();
+        }
+
+        if (data.success && data.wifi) {
+          renderWifiStatus(data.wifi);
+        }
+      } catch (err) {
+        console.warn('Diagnostics fetch failed:', err);
+      }
+    }
+
+    // Power Modals & Actions
+    function openRebootModal() { document.getElementById('rebootModal').style.display = 'flex'; }
+    function closeRebootModal() { document.getElementById('rebootModal').style.display = 'none'; }
+    function openShutdownModal() { document.getElementById('shutdownModal').style.display = 'flex'; }
+    function closeShutdownModal() { document.getElementById('shutdownModal').style.display = 'none'; }
+
+    async function confirmReboot() {
+      closeRebootModal();
+      showToast('Rebooting KaraokeZero... The system will restart in a few moments.', 'info', 0);
+      try {
+        await fetch('/api/system/reboot', { method: 'POST' });
+      } catch (e) {
+        // Connection dropped
+      }
+    }
+
+    async function confirmShutdown() {
+      closeShutdownModal();
+      showToast('Shutting down KaraokeZero... Safe to unplug once LED stops blinking.', 'info', 0);
+      try {
+        await fetch('/api/system/shutdown', { method: 'POST' });
+      } catch (e) {
+        // Connection dropped
+      }
+    }
+
+    // =========================================================================
+    // 3. Wi-Fi Manager Logic
+    // =========================================================================
+
     function renderSignalBars(signal) {
       const bars = Math.min(4, Math.max(1, Math.ceil(signal / 25)));
       let html = '<div class="wifi-signal">';
@@ -664,61 +2045,43 @@
       return html;
     }
 
-    // Lock SVG icon
-    function renderLockIcon(isSecured) {
-      if (!isSecured) return '';
-      return `
-        <svg class="icon-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-        </svg>
-      `;
-    }
+    function renderWifiStatus(s) {
+      const headerBadge = document.getElementById('headerStatusBadge');
+      const headerText = document.getElementById('headerStatusText');
+      const wifiBadge = document.getElementById('wifiStatusBadge');
+      const wifiText = document.getElementById('wifiStatusText');
+      const currentSSID = document.getElementById('currentSSID');
+      const currentIP = document.getElementById('currentIP');
+      const signalBars = document.getElementById('currentSignalBars');
 
-    // Show temporary banner
-    function showBanner(message, type = 'info') {
-      const banner = document.getElementById('alertBanner');
-      banner.className = `banner ${type}`;
-      banner.innerHTML = message;
-    }
-
-    // Refresh Wi-Fi status from server
-    async function updateStatus() {
-      try {
-        const res = await fetch('/api/status');
-        const data = await res.json();
-        if (data.success && data.status) {
-          const s = data.status;
-          const indicator = document.getElementById('statusIndicator');
-          const statusText = document.getElementById('statusText');
-          const currentSSID = document.getElementById('currentSSID');
-          const currentIP = document.getElementById('currentIP');
-
-          if (s.connected) {
-            indicator.className = 'status-indicator connected';
-            statusText.innerText = 'Connected';
-            currentSSID.innerText = s.ssid || 'Unknown';
-            currentIP.innerText = 'IP: ' + (s.ip_address || 'Waiting for IP...');
-          } else {
-            indicator.className = 'status-indicator disconnected';
-            statusText.innerText = 'Disconnected';
-            currentSSID.innerText = 'No network';
-            currentIP.innerText = 'IP: Not assigned';
-          }
-        }
-      } catch (e) {
-        console.warn('Status poll error (normal if network transitioned):', e);
+      if (s.connected) {
+        headerBadge.className = 'header-badge online';
+        headerText.innerText = s.ssid || 'Connected';
+        wifiBadge.className = 'header-badge online';
+        wifiText.innerText = 'Connected';
+        currentSSID.innerText = s.ssid || 'Unknown';
+        currentIP.innerText = 'IP: ' + (s.ip_address || 'Waiting for IP...');
+        signalBars.innerHTML = renderSignalBars(s.signal || 75);
+      } else {
+        headerBadge.className = 'header-badge offline';
+        headerText.innerText = 'Offline';
+        wifiBadge.className = 'header-badge offline';
+        wifiText.innerText = 'Disconnected';
+        currentSSID.innerText = 'No Network Connected';
+        currentIP.innerText = 'IP: Not assigned';
+        signalBars.innerHTML = '';
       }
     }
 
-    // Scan available networks
     async function scanNetworks(manual = false) {
-      const btn = document.getElementById('btnScan');
-      const btnText = document.getElementById('scanBtnText');
+      const btn = document.getElementById('btnScanWifi');
+      const icon = document.getElementById('scanWifiIcon');
+      const text = document.getElementById('scanWifiText');
       const listEl = document.getElementById('wifiList');
 
-      btn.classList.add('scanning');
-      btnText.innerText = 'Scanning...';
+      btn.disabled = true;
+      icon.classList.add('spinning');
+      text.innerText = 'Scanning...';
 
       try {
         const res = await fetch(`/api/scan?rescan=${manual ? 'true' : 'false'}`);
@@ -730,6 +2093,14 @@
             const item = document.createElement('div');
             item.className = `wifi-item ${net.is_active ? 'current' : ''}`;
             item.onclick = () => openConnectModal(net);
+
+            const isSecured = net.is_secured;
+            const lockSvg = isSecured ? `
+              <svg class="icon-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            ` : '';
 
             item.innerHTML = `
               <div class="wifi-info">
@@ -744,7 +2115,7 @@
                 </div>
               </div>
               <div class="wifi-right">
-                ${renderLockIcon(net.is_secured)}
+                ${lockSvg}
                 ${net.is_active ? '<span style="font-size:0.7rem; color:var(--status-green); font-weight:700;">Active</span>' : ''}
               </div>
             `;
@@ -757,14 +2128,15 @@
         console.error('Scan error:', err);
         listEl.innerHTML = '<div class="empty-state">Failed to scan networks. Please try again.</div>';
       } finally {
-        btn.classList.remove('scanning');
-        btnText.innerText = 'Scan';
+        btn.disabled = false;
+        icon.classList.remove('spinning');
+        text.innerText = 'Scan';
       }
     }
 
     function openConnectModal(network) {
-      selectedNetwork = network;
-      document.getElementById('modalSSID').innerText = network.ssid;
+      selectedWifiNetwork = network;
+      document.getElementById('modalSSID').innerText = `Connect to "${network.ssid}"`;
       const pwdSection = document.getElementById('passwordSection');
       const pwdInput = document.getElementById('wifiPassword');
       pwdInput.value = '';
@@ -779,39 +2151,34 @@
       document.getElementById('connectModal').style.display = 'flex';
     }
 
-    function closeModal() {
+    function closeConnectModal() {
       document.getElementById('connectModal').style.display = 'none';
-      selectedNetwork = null;
+      selectedWifiNetwork = null;
     }
 
     function togglePasswordVisibility() {
       const input = document.getElementById('wifiPassword');
-      if (input.type === 'password') {
-        input.type = 'text';
-      } else {
-        input.type = 'password';
-      }
+      input.type = input.type === 'password' ? 'text' : 'password';
     }
 
     async function submitConnection() {
-      if (!selectedNetwork || isConnecting) return;
+      if (!selectedWifiNetwork || isConnectingWifi) return;
 
-      const ssid = selectedNetwork.ssid;
+      const ssid = selectedWifiNetwork.ssid;
       const password = document.getElementById('wifiPassword').value;
       const confirmBtn = document.getElementById('btnConfirmConnect');
 
-      isConnecting = true;
+      isConnectingWifi = true;
       confirmBtn.disabled = true;
       confirmBtn.innerHTML = '<span>Connecting...</span>';
 
-      showBanner(
-        `<strong>Connecting to "${escapeHtml(ssid)}"...</strong><br>` +
-        `KaraokeZero is configuring the new network (Priority 50). ` +
-        `If you are connected via Admin Hotspot, your connection may drop while migrating to the venue Wi-Fi.`,
-        'info'
+      showToast(
+        `Connecting to "${escapeHtml(ssid)}" (Priority 50)... If connected via Hotspot, reconnect to venue Wi-Fi if needed.`,
+        'info',
+        10000
       );
 
-      closeModal();
+      closeConnectModal();
 
       try {
         const response = await fetch('/api/connect', {
@@ -822,28 +2189,25 @@
         const resData = await response.json();
 
         if (resData.success) {
-          startConnectionPolling();
+          startWifiConnectionPolling();
         } else {
-          showBanner(`Error: ${resData.error || 'Failed to initiate connection.'}`, 'error');
-          isConnecting = false;
+          showToast(`Error: ${resData.error || 'Connection failed.'}`, 'error');
+          isConnectingWifi = false;
         }
       } catch (err) {
-        // If fetch fails because connection was dropped during network migration, inform user gracefully
-        showBanner(
-          `<strong>Device migration in progress!</strong><br>` +
-          `The connection to this Hotspot was closed because KaraokeZero is switching to "${escapeHtml(ssid)}". ` +
-          `Reconnect your phone to the venue Wi-Fi to access PiKaraoke.`,
+        showToast(
+          `Device is migrating to "${escapeHtml(ssid)}". Please reconnect your device to the venue network.`,
           'success'
         );
-        isConnecting = false;
+        isConnectingWifi = false;
       }
     }
 
-    function startConnectionPolling() {
+    function startWifiConnectionPolling() {
       let attempts = 0;
-      if (pollInterval) clearInterval(pollInterval);
+      if (wifiPollInterval) clearInterval(wifiPollInterval);
 
-      pollInterval = setInterval(async () => {
+      wifiPollInterval = setInterval(async () => {
         attempts++;
         try {
           const res = await fetch('/api/connect/status');
@@ -851,45 +2215,39 @@
           if (data.success && data.state) {
             const state = data.state;
             if (state.status === 'success') {
-              clearInterval(pollInterval);
-              isConnecting = false;
-              showBanner(`<strong>Success!</strong> ${state.message}`, 'success');
-              updateStatus();
+              clearInterval(wifiPollInterval);
+              isConnectingWifi = false;
+              showToast(`Success! ${state.message}`, 'success');
+              refreshDiagnostics();
               scanNetworks(false);
             } else if (state.status === 'error') {
-              clearInterval(pollInterval);
-              isConnecting = false;
-              showBanner(`<strong>Connection Failed:</strong> ${state.message}`, 'error');
+              clearInterval(wifiPollInterval);
+              isConnectingWifi = false;
+              showToast(`Connection Failed: ${state.message}`, 'error');
             }
           }
         } catch (e) {
           if (attempts > 3) {
-            clearInterval(pollInterval);
-            isConnecting = false;
-            showBanner(
-              `<strong>Device migrated!</strong> KaraokeZero disconnected from this hotspot to join the venue network.`,
-              'success'
-            );
+            clearInterval(wifiPollInterval);
+            isConnectingWifi = false;
+            showToast('Device migrated network! Reconnect to venue Wi-Fi.', 'success');
           }
         }
       }, 2000);
     }
 
-    function escapeHtml(text) {
-      if (!text) return '';
-      return text.replace(/[&<>"']/g, m => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;'
-      })[m]);
-    }
-
     // Auto-init on page load
     window.addEventListener('DOMContentLoaded', () => {
-      scanNetworks(false);
-      setInterval(updateStatus, 6000);
+      const hash = window.location.hash.replace('#', '');
+      if (['songs', 'system', 'wifi'].includes(hash)) {
+        switchTab(hash);
+      } else {
+        switchTab('songs');
+      }
+
+      refreshDiagnostics();
+      loadDownloads();
+      setInterval(refreshDiagnostics, 8000);
     });
   </script>
 </body>

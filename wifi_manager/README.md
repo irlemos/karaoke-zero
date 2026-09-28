@@ -64,10 +64,27 @@ KaraokeZero uses NetworkManager (`nmcli`) to handle network transitions using a 
 
 ## 3. HTTP API Reference
 
+### System & Settings
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
-| `/` | `GET` | Serves the responsive network configuration web interface. |
-| `/api/status` | `GET` | Returns active connection details: `{ "ssid": "...", "ip_address": "...", "device": "...", "signal": 85 }`. |
+| `/` | `GET` | Serves the mobile-first 3-tab administration panel. |
+| `/api/status` | `GET` | Returns connection status, system diagnostics (CPU temp, RAM, storage, uptime), and active settings. |
+| `/api/settings` | `GET` | Returns current persistent settings (`offline_mode`, `default_video_quality`, `audio_quality`). |
+| `/api/settings` | `POST` | Updates persistent settings and synchronizes configuration with PiKaraoke. |
+| `/api/system/reboot` | `POST` | Safely triggers an appliance reboot after returning HTTP confirmation. |
+| `/api/system/shutdown` | `POST` | Safely powers off the appliance after returning HTTP confirmation. |
+
+### Songs Search & Downloads
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/api/songs/search` | `GET` | Searches YouTube karaoke videos via `yt-dlp` metadata (`?q=<query>`). |
+| `/api/songs/download` | `POST` | Enqueues a non-blocking background download task with selected video quality and best available audio. |
+| `/api/songs/downloads` | `GET` | Returns active, queued, and recently completed download tasks with progress metrics. |
+| `/api/pikaraoke/rescan` | `POST` | Refreshes the PiKaraoke catalog so newly downloaded songs appear immediately in search. |
+
+### Wireless Networking
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
 | `/api/scan` | `GET` | Triggers a wireless scan via `nmcli`. Supports optional `?rescan=true` to force a hardware rescan. |
 | `/api/connect` | `POST` | Dispatches an asynchronous connection worker for JSON payload: `{ "ssid": "...", "password": "..." }`. |
 | `/api/connect/status` | `GET` | Returns the state of the background connection worker: `idle`, `connecting`, `success`, or `error`. |

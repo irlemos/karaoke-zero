@@ -3,11 +3,14 @@
 Unit tests for KaraokeZero Module 1 (WiFi Manager)
 """
 
+import configparser
+import os
+import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 import subprocess
 
-from app import parse_terse_line, scan_wifi_networks, get_current_wifi_status, app
+from app import parse_terse_line, scan_wifi_networks, get_current_wifi_status, app, SystemSettingsManager
 
 
 class TestWiFiManager(unittest.TestCase):
@@ -15,6 +18,37 @@ class TestWiFiManager(unittest.TestCase):
     def setUp(self):
         self.client = app.test_client()
         app.config["TESTING"] = True
+
+    def test_system_settings_sync_to_pikaraoke(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings_path = os.path.join(tmpdir, "settings.json")
+            config_path = os.path.join(tmpdir, "config.ini")
+
+            with patch("app.get_settings_file_path", return_value=settings_path), \
+                 patch("app.get_pikaraoke_config_path", return_value=config_path):
+                mgr = SystemSettingsManager()
+
+                # 1. Test offline mode True
+                mgr.save({"offline_mode": True, "default_video_quality": "720"})
+                self.assertTrue(mgr.settings["offline_mode"])
+                self.assertEqual(mgr.settings["default_video_quality"], "720")
+
+                # Verify written config.ini
+                cp = configparser.ConfigParser()
+                cp.read(config_path)
+                self.assertEqual(cp.get("SECRETS", "admin_password"), "karaokezero_locked")
+                self.assertEqual(cp.get("USERPREFERENCES", "high_quality"), "True")
+
+                # 2. Test offline mode False and standard quality
+                mgr.save({"offline_mode": False, "default_video_quality": "480"})
+                self.assertFalse(mgr.settings["offline_mode"])
+                self.assertEqual(mgr.settings["default_video_quality"], "480")
+
+                cp = configparser.ConfigParser()
+                cp.read(config_path)
+                self.assertEqual(cp.get("SECRETS", "admin_password"), "")
+                self.assertEqual(cp.get("USERPREFERENCES", "high_quality"), "False")
+
 
     def test_parse_terse_line_simple(self):
         line = "*:MyHomeWifi:85:WPA2"
@@ -125,6 +159,127 @@ class TestWiFiManager(unittest.TestCase):
             self.assertTrue(data3["success"])
             self.assertIn("Venue_WiFi", data3["message"])
 
+    def test_api_status(self):
+        with patch("app.get_current_wifi_status") as mock_wifi, \
+             patch("app.get_system_diagnostics") as mock_diag:
+            mock_wifi.return_value = {"connected": True, "ssid": "TestHotspot"}
+            mock_diag.return_value = {"cpu_temp": 45.0, "ram_percent": 30.0}
+
+            res = self.client.get("/api/status")
+            self.assertEqual(res.status_code, 200)
+            data = res.get_json()
+            self.assertTrue(data["success"])
+            self.assertIn("wifi", data)
+            self.assertIn("diagnostics", data)
+            self.assertIn("settings", data)
+            self.assertEqual(data["diagnostics"]["cpu_temp"], 45.0)
+
+    def test_api_get_and_update_settings(self):
+        with patch("app.settings_mgr.save") as mock_save:
+            mock_save.return_value = {
+                "default_video_quality": "720",
+                "offline_mode": True,
+                "audio_quality": "best"
+            }
+
+            # Update settings
+            res = self.client.post("/api/settings", json={
+                "default_video_quality": "720",
+                "offline_mode": True
+            })
+            self.assertEqual(res.status_code, 200)
+            data = res.get_json()
+            self.assertTrue(data["success"])
+            self.assertEqual(data["settings"]["default_video_quality"], "720")
+            self.assertTrue(data["settings"]["offline_mode"])
+
+            # Read settings
+            res_get = self.client.get("/api/settings")
+            self.assertEqual(res_get.status_code, 200)
+            data_get = res_get.get_json()
+            self.assertTrue(data_get["success"])
+            self.assertIn("settings", data_get)
+
+    def test_api_songs_search(self):
+        # Empty query
+        res_empty = self.client.get("/api/songs/search?q=")
+        self.assertEqual(res_empty.status_code, 200)
+        self.assertEqual(res_empty.get_json()["results"], [])
+
+        # Mocked search query
+        with patch("app.search_youtube_videos") as mock_search:
+            mock_search.return_value = [
+                {
+                    "id": "abc12345",
+                    "title": "Queen - Bohemian Rhapsody Karaoke",
+                    "uploader": "KaraokeChannel",
+                    "duration": "5:55",
+                    "thumbnail": "https://example.com/thumb.jpg",
+                    "url": "https://www.youtube.com/watch?v=abc12345"
+                }
+            ]
+            res = self.client.get("/api/songs/search?q=bohemian")
+            self.assertEqual(res.status_code, 200)
+            data = res.get_json()
+            self.assertTrue(data["success"])
+            self.assertEqual(data["count"], 1)
+            self.assertEqual(data["results"][0]["title"], "Queen - Bohemian Rhapsody Karaoke")
+
+    def test_api_songs_download_and_list(self):
+        # Missing URL
+        res_err = self.client.post("/api/songs/download", json={})
+        self.assertEqual(res_err.status_code, 400)
+
+        # Enqueue download
+        with patch("app.download_mgr.add_download") as mock_add:
+            mock_add.return_value = {
+                "id": "dl_test_123",
+                "url": "https://www.youtube.com/watch?v=abc12345",
+                "title": "Test Song",
+                "quality": "480",
+                "status": "queued"
+            }
+            res = self.client.post("/api/songs/download", json={
+                "url": "https://www.youtube.com/watch?v=abc12345",
+                "title": "Test Song"
+            })
+            self.assertEqual(res.status_code, 200)
+            data = res.get_json()
+            self.assertTrue(data["success"])
+            self.assertEqual(data["task"]["id"], "dl_test_123")
+
+        # List downloads
+        res_list = self.client.get("/api/songs/downloads")
+        self.assertEqual(res_list.status_code, 200)
+        data_list = res_list.get_json()
+        self.assertTrue(data_list["success"])
+        self.assertIn("tasks", data_list)
+
+    def test_api_pikaraoke_rescan(self):
+        with patch("app.restart_pikaraoke_service") as mock_restart:
+            mock_restart.return_value = True
+            res = self.client.post("/api/pikaraoke/rescan")
+            self.assertEqual(res.status_code, 200)
+            self.assertTrue(res.get_json()["success"])
+
+            mock_restart.return_value = False
+            res_fail = self.client.post("/api/pikaraoke/rescan")
+            self.assertEqual(res_fail.status_code, 500)
+            self.assertFalse(res_fail.get_json()["success"])
+
+    def test_api_system_power(self):
+        with patch("app.delayed_power_action"):
+            # Reboot
+            res_reboot = self.client.post("/api/system/reboot")
+            self.assertEqual(res_reboot.status_code, 200)
+            self.assertTrue(res_reboot.get_json()["success"])
+
+            # Shutdown
+            res_shutdown = self.client.post("/api/system/shutdown")
+            self.assertEqual(res_shutdown.status_code, 200)
+            self.assertTrue(res_shutdown.get_json()["success"])
+
 
 if __name__ == "__main__":
     unittest.main()
+
