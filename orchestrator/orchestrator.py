@@ -18,6 +18,8 @@ from typing import Optional
 from display_manager import DisplayManager
 from network_watcher import NetworkWatcher
 from pikaraoke_client import PiKaraokeClient
+from screen_generator import ScreenGenerator
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,6 +71,10 @@ class OrchestratorDaemon:
         )
         self.client = PiKaraokeClient(base_url=pikaraoke_url)
 
+        # Graphical idle details screen generator and output path
+        self.idle_screen_path = os.environ.get("IDLE_SCREEN_PATH", "/tmp/karaoke_idle_screen.png")
+        self.screen_generator = ScreenGenerator(output_path=self.idle_screen_path)
+
         # Background video resolution
         self.bg_video = self._resolve_background_video(bg_video_path)
 
@@ -76,10 +82,10 @@ class OrchestratorDaemon:
         self.active_song_id: Optional[str] = None
         self.last_pause_state: bool = False
 
-    def _resolve_background_video(self, custom_path: Optional[str]) -> str:
+    def _resolve_background_video(self, custom_path: Optional[str]) -> Optional[str]:
         """
-        Locates the idle background video directly from the installed PiKaraoke directory
-        or falls back to the local PiKaraoke HTTP stream.
+        Locates an idle background video if custom path is provided or installed on external HD.
+        Returns None if no local video file exists so the graphical details screen is used instead.
         """
         if custom_path and os.path.isfile(custom_path):
             logger.info("Using custom background video: %s", custom_path)
@@ -119,10 +125,38 @@ class OrchestratorDaemon:
                 logger.info("Using installed PiKaraoke video: %s", path)
                 return path
 
-        # 4. Fallback to PiKaraoke stream endpoint
-        stream_url = f"{self.pikaraoke_url}/stream/bg_video"
-        logger.info("No local background video found; falling back to PiKaraoke stream: %s", stream_url)
-        return stream_url
+        logger.info("No local background video found; using graphical details screen.")
+        return None
+
+    def _update_idle_screen(self) -> str:
+        """
+        Generates or refreshes the graphical details screen image.
+        Returns the path to the rendered idle image.
+        """
+        ip = self.network.get_ip_address()
+        qr_path = self.network.qr_output_path if os.path.exists(self.network.qr_output_path) else None
+        ssid = self.network.get_ssid()
+        self.screen_generator.generate(
+            output_path=self.idle_screen_path,
+            qr_path=qr_path,
+            ip_address=ip,
+            port=self.network.port,
+            portal_port=8888,
+            wifi_ssid=ssid,
+            status_text="SYSTEM READY  |  0 ACTIVE SONGS IN QUEUE  |  STANDBY"
+        )
+        return self.idle_screen_path
+
+    def _resolve_idle_media(self) -> str:
+        """
+        Determines active idle media target:
+        Uses custom background video if explicitly configured and existing on disk,
+        otherwise uses the dynamically generated graphical details screen.
+        """
+        if self.bg_video and os.path.isfile(self.bg_video):
+            return self.bg_video
+        return self._update_idle_screen()
+
 
     def setup_signals(self) -> None:
         """Configures clean POSIX termination signal handlers."""
@@ -138,6 +172,8 @@ class OrchestratorDaemon:
         logger.info("Skip triggered. Stopping active playback...")
         if self.state == self.STATE_PLAYING:
             self.display.stop(timeout=1.0)
+            self.transition_to_idle()
+
 
     def _find_local_song_file(self, song_title: str) -> Optional[str]:
         """
@@ -216,17 +252,20 @@ class OrchestratorDaemon:
             logger.debug("Failed to write idle screen to console %s: %s", tty_device, e)
 
     def transition_to_idle(self) -> None:
-        """Transitions state machine to IDLE state and renders the static console screen."""
-        logger.info("Transitioning to IDLE state (Zero-CPU Mode).")
+        """Transitions state machine to IDLE state and activates the graphical details screen."""
+        logger.info("Transitioning to IDLE state (Activating Graphical Details Screen).")
         self.state = self.STATE_IDLE
         self.active_song_id = None
         self.last_pause_state = False
 
-        # Ensure any video playback is stopped (Zero CPU)
-        self.display.stop(timeout=1.0)
-
-        # Update network and render static promo + QR screen
+        # Ensure network IP and QR code are refreshed
         self.network.update()
+
+        # Resolve and activate idle media via MPV DRM/KMS
+        target_media = self._resolve_idle_media()
+        self.display.start_idle(media_path=target_media)
+
+        # Also write static details to tty1 console as secondary fallback
         self.render_idle_screen()
 
     def transition_to_playing(self, song_title: str, stream_url: str) -> None:
@@ -261,14 +300,23 @@ class OrchestratorDaemon:
 
     def step(self) -> None:
         """Single tick of the orchestrator state machine."""
-        # 1. Check network IP and update console if migrated
+        # 1. Check network IP and update display if migrated
         ip_changed, current_url = self.network.update()
         if ip_changed and self.state == self.STATE_IDLE:
-            logger.info("IP address changed (%s). Refreshing idle console screen...", current_url)
+            logger.info("IP address changed (%s). Refreshing idle display...", current_url)
+            target_media = self._resolve_idle_media()
+            self.display.start_idle(media_path=target_media)
             self.render_idle_screen()
 
-        # 2. Query PiKaraoke now_playing status
+        # 2. Watchdog: ensure idle screen remains actively displayed while in IDLE state
+        if self.state == self.STATE_IDLE and not self.display.is_running():
+            logger.warning("Idle display process is not running. Restarting idle screen...")
+            target_media = self._resolve_idle_media()
+            self.display.start_idle(media_path=target_media)
+
+        # 3. Query PiKaraoke now_playing status
         now_playing_data = self.client.get_now_playing()
+
 
         # Handle states
         if self.state == self.STATE_BOOT:
@@ -350,10 +398,22 @@ class OrchestratorDaemon:
     def wait_for_backend(self, max_wait_seconds: float = 120.0) -> bool:
         """
         Waits for PiKaraoke web service to become operational while outputting status
-        to the local HDMI console (/dev/tty1).
+        both graphically via MPV DRM/KMS and to the local HDMI console (/dev/tty1).
         """
         logger.info("Awaiting PiKaraoke service readiness at %s...", self.pikaraoke_url)
         start_time = time.time()
+
+        # Render initial boot/startup screen so HDMI output is graphical from the earliest stage
+        try:
+            boot_screen = "/tmp/karaoke_boot_screen.png"
+            if self.screen_generator.generate_boot_screen(
+                output_path=boot_screen,
+                status_text="Starting PiKaraoke appliance services..."
+            ):
+                self.display.start_idle(media_path=boot_screen)
+        except Exception as e:
+            logger.debug("Initial graphical boot screen note: %s", e)
+
         while self.running and (time.time() - start_time < max_wait_seconds):
             if self.client.is_healthy():
                 self.write_console_status("PiKaraoke is ready! Starting display engine...")
@@ -366,6 +426,7 @@ class OrchestratorDaemon:
 
         logger.warning("Timed out waiting for PiKaraoke. Proceeding with startup anyway...")
         return False
+
 
     def run(self) -> None:
         """Runs the main orchestrator daemon loop."""

@@ -94,6 +94,35 @@ class NetworkWatcher:
             return f"http://{ip}:{self.port}"
         return None
 
+    def get_ssid(self) -> Optional[str]:
+        """
+        Retrieves the currently connected Wi-Fi network SSID if available.
+        Checks iwgetid first, then queries NetworkManager via nmcli.
+        """
+        try:
+            res = subprocess.run(["iwgetid", "-r"], capture_output=True, text=True, timeout=2)
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+        except Exception:
+            pass
+
+        try:
+            res = subprocess.run(
+                ["nmcli", "-t", "-f", "active,ssid", "dev", "wifi"],
+                capture_output=True, text=True, timeout=3
+            )
+            if res.returncode == 0:
+                for line in res.stdout.splitlines():
+                    if line.startswith("yes:"):
+                        ssid = line.split(":", 1)[1].strip()
+                        if ssid:
+                            return ssid
+        except Exception:
+            pass
+
+        return None
+
+
     def generate_qr_code(self, url: str) -> bool:
         """
         Invokes qrencode to render a high-contrast PNG QR code.

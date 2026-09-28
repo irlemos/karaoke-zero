@@ -7,12 +7,14 @@ import json
 import os
 import signal
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
 from display_manager import DisplayManager
 from network_watcher import NetworkWatcher
 from pikaraoke_client import PiKaraokeClient
+from screen_generator import ScreenGenerator
 from orchestrator import OrchestratorDaemon
 
 
@@ -75,6 +77,51 @@ class TestNetworkWatcher(unittest.TestCase):
         self.assertIn("-t", cmd)
         self.assertIn("UTF8", cmd)
 
+    @patch("subprocess.run")
+    def test_get_ssid(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="MyHomeNetwork\n", stderr="")
+        watcher = NetworkWatcher(port=5555)
+        ssid = watcher.get_ssid()
+        self.assertEqual(ssid, "MyHomeNetwork")
+
+
+class TestScreenGenerator(unittest.TestCase):
+
+    def test_generate_idle_screen(self):
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+            temp_path = tf.name
+        try:
+            sg = ScreenGenerator(output_path=temp_path)
+            res = sg.generate(
+                output_path=temp_path,
+                ip_address="192.168.1.150",
+                port=5555,
+                portal_port=8888,
+                wifi_ssid="KaraokeSetup"
+            )
+            self.assertTrue(res)
+            self.assertTrue(os.path.isfile(temp_path))
+            self.assertGreater(os.path.getsize(temp_path), 5000)
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def test_generate_boot_screen(self):
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+            temp_path = tf.name
+        try:
+            sg = ScreenGenerator(output_path=temp_path)
+            res = sg.generate_boot_screen(
+                output_path=temp_path,
+                status_text="Starting PiKaraoke appliance services..."
+            )
+            self.assertTrue(res)
+            self.assertTrue(os.path.isfile(temp_path))
+            self.assertGreater(os.path.getsize(temp_path), 5000)
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
 
 class TestDisplayManager(unittest.TestCase):
 
@@ -88,7 +135,7 @@ class TestDisplayManager(unittest.TestCase):
 
     @patch("os.path.exists", return_value=True)
     @patch("subprocess.Popen")
-    def test_start_idle_with_qr_overlay(self, mock_popen, mock_exists):
+    def test_start_idle_with_video(self, mock_popen, mock_exists):
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
         mock_popen.return_value = mock_proc
@@ -109,6 +156,33 @@ class TestDisplayManager(unittest.TestCase):
         self.assertIn("--no-audio", cmd)
         self.assertIn("--loop-file=inf", cmd)
         self.assertEqual(cmd[-1], "/opt/assets/idle.mp4")
+
+    @patch("os.path.exists", return_value=True)
+    @patch("subprocess.Popen")
+    def test_start_idle_with_image(self, mock_popen, mock_exists):
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_popen.return_value = mock_proc
+
+        success = self.display.start_idle(
+            media_path="/tmp/karaoke_idle_screen.png"
+        )
+        self.assertTrue(success)
+        self.assertEqual(self.display.current_mode, "idle")
+
+        cmd = mock_popen.call_args[0][0]
+        self.assertEqual(cmd[0], "mpv")
+        self.assertIn("--image-display-duration=inf", cmd)
+        self.assertIn("--loop-file=inf", cmd)
+        self.assertEqual(cmd[-1], "/tmp/karaoke_idle_screen.png")
+
+    @patch.object(DisplayManager, "is_running", return_value=True)
+    @patch.object(DisplayManager, "send_ipc_command", return_value=True)
+    def test_start_idle_ipc_update(self, mock_ipc, mock_running):
+        self.display.current_mode = "idle"
+        success = self.display.start_idle(media_path="/tmp/karaoke_idle_screen.png")
+        self.assertTrue(success)
+        mock_ipc.assert_called_once_with(["loadfile", "/tmp/karaoke_idle_screen.png", "replace"])
 
     @patch("subprocess.Popen")
     def test_start_playback(self, mock_popen):
@@ -198,21 +272,27 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
 
     @patch.object(NetworkWatcher, "get_ip_address", return_value="192.168.1.100")
     @patch.object(PiKaraokeClient, "is_healthy", side_effect=[False, True])
+    @patch.object(ScreenGenerator, "generate_boot_screen", return_value=True)
+    @patch.object(DisplayManager, "start_idle", return_value=True)
     @patch("builtins.open")
-    def test_wait_for_backend(self, mock_open, mock_healthy, mock_ip):
+    def test_wait_for_backend(self, mock_open, mock_start_idle, mock_boot, mock_healthy, mock_ip):
         self.daemon.running = True
         ready = self.daemon.wait_for_backend(max_wait_seconds=5.0)
         self.assertTrue(ready)
         self.assertEqual(mock_healthy.call_count, 2)
+        mock_boot.assert_called_once()
+        mock_start_idle.assert_called_once()
 
     @patch.object(NetworkWatcher, "update", return_value=(False, "http://192.168.1.100:5555"))
     @patch.object(OrchestratorDaemon, "render_idle_screen")
+    @patch.object(DisplayManager, "start_idle", return_value=True)
     @patch.object(PiKaraokeClient, "get_now_playing", return_value=None)
-    def test_boot_to_idle_transition(self, mock_np, mock_render, mock_net):
+    def test_boot_to_idle_transition(self, mock_np, mock_start_idle, mock_render, mock_net):
         self.assertEqual(self.daemon.state, OrchestratorDaemon.STATE_BOOT)
         self.daemon.step()
         self.assertEqual(self.daemon.state, OrchestratorDaemon.STATE_IDLE)
         mock_render.assert_called_once()
+        mock_start_idle.assert_called_once()
 
     @patch.object(NetworkWatcher, "update", return_value=(False, "http://192.168.1.100:5555"))
     @patch.object(DisplayManager, "start_playback", return_value=True)
@@ -234,10 +314,11 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
 
     @patch.object(NetworkWatcher, "update", return_value=(False, "http://192.168.1.100:5555"))
     @patch.object(DisplayManager, "is_running", return_value=False)
+    @patch.object(DisplayManager, "start_idle", return_value=True)
     @patch.object(OrchestratorDaemon, "render_idle_screen")
     @patch.object(PiKaraokeClient, "notify_end_song", return_value=True)
     @patch.object(PiKaraokeClient, "get_now_playing", return_value=None)
-    def test_song_completion_to_idle_transition(self, mock_np, mock_notify_end, mock_render, mock_running, mock_net):
+    def test_song_completion_to_idle_transition(self, mock_np, mock_notify_end, mock_render, mock_start_idle, mock_running, mock_net):
         self.daemon.state = OrchestratorDaemon.STATE_PLAYING
         self.daemon.active_song_id = "/stream/nirvana.mp4"
         self.daemon.playback_start_time = 0
@@ -247,6 +328,15 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
         self.assertEqual(self.daemon.state, OrchestratorDaemon.STATE_IDLE)
         mock_notify_end.assert_called_once_with(reason="complete")
         mock_render.assert_called_once()
+        mock_start_idle.assert_called_once()
+
+    @patch.object(DisplayManager, "stop")
+    @patch.object(OrchestratorDaemon, "transition_to_idle")
+    def test_on_skip_event(self, mock_idle, mock_stop):
+        self.daemon.state = OrchestratorDaemon.STATE_PLAYING
+        self.daemon.on_skip_event()
+        mock_stop.assert_called_once_with(timeout=1.0)
+        mock_idle.assert_called_once()
 
 
 if __name__ == "__main__":

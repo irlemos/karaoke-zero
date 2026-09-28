@@ -338,7 +338,10 @@ PKGS=(
     python3-websockets
     python3-socketio
     python3-qrcode
+    python3-pil
+    fonts-dejavu-core
     python3-requests
+
     python3-urllib3
     python3-babel
     python3-jinja2

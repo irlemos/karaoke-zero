@@ -113,17 +113,31 @@ class DisplayManager:
                 except OSError:
                     pass
 
-    def start_idle(self, video_path: str, qr_code_path: Optional[str] = None) -> bool:
+    def start_idle(self, video_path: str = "", qr_code_path: Optional[str] = None, media_path: Optional[str] = None) -> bool:
         """
-        Launches mpv in continuous loop mode playing the idle background video.
+        Launches or updates mpv in continuous loop mode playing the idle media (image or video).
+        If mpv is already running in idle mode, seamlessly switches media via IPC socket without restart.
         Uses --no-audio for zero audio-driver overhead during standby.
         """
-        self.stop(timeout=1.0)
-
-        is_url = video_path.startswith("http://") or video_path.startswith("https://")
-        if not is_url and not os.path.exists(video_path):
-            logger.error("Background video file not found: %s", video_path)
+        target_media = media_path or video_path
+        if not target_media:
+            logger.error("No idle media path provided.")
             return False
+
+        is_url = target_media.startswith("http://") or target_media.startswith("https://")
+        if not is_url and not os.path.exists(target_media):
+            logger.error("Idle media file not found: %s", target_media)
+            return False
+
+        # If mpv is already actively running in idle mode, update media seamlessly via IPC
+        if self.is_running() and self.current_mode == "idle":
+            logger.debug("mpv already running in idle mode. Updating media via IPC: %s", target_media)
+            if self.send_ipc_command(["loadfile", target_media, "replace"]):
+                self.current_media = target_media
+                return True
+            logger.debug("IPC update failed or unacknowledged. Restarting mpv idle process...")
+
+        self.stop(timeout=1.0)
 
         args = self._build_base_args()
         args.extend([
@@ -131,9 +145,13 @@ class DisplayManager:
             "--loop-file=inf"
         ])
 
-        args.append(video_path)
+        # Hold static image display indefinitely (mpv default is 1s for images)
+        if target_media.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".webp")):
+            args.append("--image-display-duration=inf")
 
-        logger.info("Starting IDLE screen via mpv (vo=%s, gpu-context=drm)...", self.vout)
+        args.append(target_media)
+
+        logger.info("Starting IDLE screen via mpv (vo=%s, gpu-context=drm): %s", self.vout, target_media)
         logger.debug("Command: %s", " ".join(args))
 
         try:
@@ -157,13 +175,14 @@ class DisplayManager:
                 return False
 
             self.current_mode = "idle"
-            self.current_media = video_path
+            self.current_media = target_media
             return True
         except Exception as e:
             logger.exception("Failed to spawn idle mpv process: %s", e)
             self.process = None
             self.current_mode = "stopped"
             return False
+
 
     def start_playback(self, media_target: str) -> bool:
         """
