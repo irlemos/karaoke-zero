@@ -196,7 +196,6 @@ class OrchestratorDaemon:
             "  ============================================================================",
             "",
             "                 >>> SCAN WITH YOUR PHONE TO CHOOSE SONGS <<<                 ",
-            "                 >>>  ESCANEIE COM O CELULAR PARA CANTAR  <<<                 ",
             "",
             qr_block,
             "",

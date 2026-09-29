@@ -133,7 +133,7 @@ class ScreenGenerator:
 
             draw.rounded_rectangle([left_x1, left_y1, left_x2, left_y2], radius=24, fill=(255, 255, 255), outline=self.ACCENT_CYAN, width=3)
             draw.text(((left_x1 + left_x2) // 2, left_y1 + 50), "SCAN TO SING", fill=(15, 23, 42), font=font_section, anchor="mm")
-            draw.text(((left_x1 + left_x2) // 2, left_y1 + 85), "ESCANEIE PARA CANTAR", fill=(100, 116, 139), font=font_caption, anchor="mm")
+            draw.text(((left_x1 + left_x2) // 2, left_y1 + 85), "POINT CAMERA AT QR CODE", fill=(100, 116, 139), font=font_caption, anchor="mm")
 
             qr_box_size = 440
             qr_x = (left_x1 + left_x2 - qr_box_size) // 2
@@ -154,7 +154,7 @@ class ScreenGenerator:
                 draw.text(((left_x1 + left_x2) // 2, qr_y + qr_box_size // 2), "[ QR CODE READY ]", fill=(100, 100, 100), font=font_section, anchor="mm")
 
             draw.text(((left_x1 + left_x2) // 2, left_y2 - 60), "Use your smartphone camera", fill=(15, 23, 42), font=font_caption, anchor="mm")
-            draw.text(((left_x1 + left_x2) // 2, left_y2 - 32), "Abra a camera do seu celular", fill=(100, 116, 139), font=font_small, anchor="mm")
+            draw.text(((left_x1 + left_x2) // 2, left_y2 - 32), "No app download required", fill=(100, 116, 139), font=font_small, anchor="mm")
 
             # --- RIGHT CARD: Connection Details & Instructions ---
             right_x1 = 780
@@ -167,7 +167,7 @@ class ScreenGenerator:
             pad_x = right_x1 + 60
             curr_y = right_y1 + 55
 
-            draw.text((pad_x, curr_y), "HOW TO CONNECT / COMO CONECTAR", fill=self.ACCENT_CYAN, font=font_section)
+            draw.text((pad_x, curr_y), "HOW TO CONNECT", fill=self.ACCENT_CYAN, font=font_section)
             curr_y += 65
 
             # Step 1: Wi-Fi
@@ -203,7 +203,7 @@ class ScreenGenerator:
             curr_y += 25
             draw.text((pad_x, curr_y), "• Add your favorite songs to the queue directly from your phone.", fill=self.TEXT_MUTED, font=font_body)
             curr_y += 35
-            draw.text((pad_x, curr_y), "• Adicione suas musicas favoritas na fila direto pelo smartphone.", fill=self.TEXT_MUTED, font=font_body)
+            draw.text((pad_x, curr_y), "• Search by song title or artist and control playback seamlessly.", fill=self.TEXT_MUTED, font=font_body)
 
             # 4. Footer status bar
             footer_y = self.height - 70
