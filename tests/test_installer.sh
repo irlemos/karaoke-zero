@@ -121,6 +121,15 @@ test_reinstall_cleanup_logic() {
     grep -q "systemctl restart admin_panel.service" "${INSTALLER}" || return 1
 }
 
+# Test 9: Early Service & Player Halting for 100% CPU Reclaim
+test_early_service_halt() {
+    # Verify installer stops services and kills processes before package installation
+    grep -q "Halting all active and legacy KaraokeZero & PiKaraoke services to free CPU/RAM" "${INSTALLER}" || return 1
+    grep -q 'pkill -9 -f "mpv"' "${INSTALLER}" || return 1
+    grep -q 'pkill -9 -f "pikaraoke"' "${INSTALLER}" || return 1
+    grep -q 'pkill -9 -f "orchestrator.py"' "${INSTALLER}" || return 1
+}
+
 echo "==================================================================="
 echo "Running KaraokeZero Installer Test Suite"
 echo "==================================================================="
@@ -133,6 +142,7 @@ run_test "Interactive external HD input simulation" test_interactive_external_hd
 run_test "Interactive internal SD card input simulation" test_interactive_sd_card
 run_test "Clean single log file generation" test_log_generation_and_freshness
 run_test "Reinstallation & legacy cleanup validation" test_reinstall_cleanup_logic
+run_test "Early service and player halt validation" test_early_service_halt
 
 echo "==================================================================="
 if [[ "${FAILED}" -eq 0 ]]; then

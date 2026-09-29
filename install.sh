@@ -170,7 +170,39 @@ SUPPRESS_FB_CURSOR="${SUPPRESS_FB_CURSOR:-true}"
 ENABLE_SERVICES_NOW="${ENABLE_SERVICES_NOW:-true}"
 
 # ------------------------------------------------------------------------------
-# 3. Interactive Prompts for Incomplete Configuration
+# 3. Halt Active Appliance Services & Free System Resources
+# ------------------------------------------------------------------------------
+# On resource-constrained hardware (e.g. Raspberry Pi Zero W single-core ARMv6,
+# 512MB RAM), running playback daemons, MPV video loops, and Python web servers
+# continuously consumes 100% CPU and memory. We must terminate all services
+# and lingering processes immediately so apt-get, git, and pip can execute smoothly.
+log_info "Halting all active and legacy KaraokeZero & PiKaraoke services to free CPU/RAM..."
+
+if [[ "${DRY_RUN}" != "true" ]]; then
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl stop admin_panel.service wifi_manager.service orchestrator.service pikaraoke.service 2>/dev/null || true
+    fi
+
+    # Terminate any lingering media players, encoders, or background daemon processes
+    pkill -9 -f "mpv" 2>/dev/null || true
+    pkill -9 -f "pikaraoke" 2>/dev/null || true
+    pkill -9 -f "orchestrator.py" 2>/dev/null || true
+    pkill -9 -f "admin_panel/app.py" 2>/dev/null || true
+    pkill -9 -f "wifi_manager/app.py" 2>/dev/null || true
+    pkill -9 -f "yt-dlp" 2>/dev/null || true
+    pkill -9 -f "ffmpeg" 2>/dev/null || true
+    sleep 1
+
+    # Force release web ports (5555 and 8888) if held by orphan sockets
+    if command -v fuser >/dev/null 2>&1; then
+        fuser -k 5555/tcp 2>/dev/null || true
+        fuser -k 8888/tcp 2>/dev/null || true
+    fi
+    log_success "Appliance services halted; 100% CPU and memory reclaimed for installation."
+fi
+
+# ------------------------------------------------------------------------------
+# 4. Interactive Prompts for Incomplete Configuration
 # ------------------------------------------------------------------------------
 
 # 3.1. Storage Device Selection
@@ -254,7 +286,7 @@ if [[ -z "${ADMIN_WIFI_SSID}" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 4. Storage Provisioning
+# 5. Storage Provisioning
 # ------------------------------------------------------------------------------
 log_info "Configuring media and data storage paths..."
 
@@ -314,7 +346,7 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# 5. System Package Installation
+# 6. System Package Installation
 # ------------------------------------------------------------------------------
 log_info "Installing core system packages..."
 
@@ -381,7 +413,7 @@ if [[ "${DRY_RUN}" != "true" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 6. Upstream PiKaraoke Deployment (Always Latest Master)
+# 7. Upstream PiKaraoke Deployment (Always Latest Master)
 # ------------------------------------------------------------------------------
 log_info "Deploying official upstream PiKaraoke (latest master branch)..."
 
@@ -422,7 +454,7 @@ if [[ "${DRY_RUN}" != "true" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 7. KaraokeZero Services Deployment
+# 8. KaraokeZero Services Deployment
 # ------------------------------------------------------------------------------
 log_info "Installing KaraokeZero appliance services into ${KARAOKEZERO_INSTALL_DIR}..."
 
@@ -471,7 +503,7 @@ if [[ "${DRY_RUN}" != "true" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 8. Firmware & Hardware Tuning (/boot/firmware/config.txt & /boot/firmware/cmdline.txt)
+# 9. Firmware & Hardware Tuning (/boot/firmware/config.txt & /boot/firmware/cmdline.txt)
 # ------------------------------------------------------------------------------
 if [[ "${CONFIGURE_BOOT_CONFIG}" == "true" && "${DRY_RUN}" != "true" ]]; then
     # Bookworm standardizes on /boot/firmware, with legacy fallback to /boot
@@ -508,7 +540,7 @@ if [[ "${SUPPRESS_FB_CURSOR}" == "true" && "${DRY_RUN}" != "true" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 9. Fallback & Active Network Provisioning (NetworkManager Keyfiles)
+# 10. Fallback & Active Network Provisioning (NetworkManager Keyfiles)
 # ------------------------------------------------------------------------------
 if [[ "${DRY_RUN}" != "true" ]]; then
     NM_DIR="/etc/NetworkManager/system-connections"
@@ -604,7 +636,7 @@ EOF
 fi
 
 # ------------------------------------------------------------------------------
-# 10. Systemd Services Setup
+# 11. Systemd Services Setup
 # ------------------------------------------------------------------------------
 log_info "Registering systemd services..."
 
