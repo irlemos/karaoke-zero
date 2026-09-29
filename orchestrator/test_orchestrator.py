@@ -177,12 +177,26 @@ class TestDisplayManager(unittest.TestCase):
         self.assertEqual(cmd[-1], "/tmp/karaoke_idle_screen.png")
 
     @patch.object(DisplayManager, "is_running", return_value=True)
-    @patch.object(DisplayManager, "send_ipc_command", return_value=True)
-    def test_start_idle_ipc_update(self, mock_ipc, mock_running):
+    @patch.object(DisplayManager, "stop")
+    @patch("subprocess.Popen")
+    @patch("os.path.exists", return_value=True)
+    def test_start_idle_restarts_mpv_for_drm_refresh(self, mock_exists, mock_popen, mock_stop, mock_running):
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_popen.return_value = mock_proc
+
         self.display.current_mode = "idle"
         success = self.display.start_idle(media_path="/tmp/karaoke_idle_screen.png")
         self.assertTrue(success)
-        mock_ipc.assert_called_once_with(["loadfile", "/tmp/karaoke_idle_screen.png", "replace"])
+        mock_stop.assert_called_once_with(timeout=1.0)
+        self.assertEqual(self.display.current_mode, "idle")
+
+    @patch.object(DisplayManager, "start_idle", return_value=True)
+    def test_start_boot_screen(self, mock_idle):
+        success = self.display.start_boot_screen("/tmp/boot.png")
+        self.assertTrue(success)
+        mock_idle.assert_called_once_with(media_path="/tmp/boot.png")
+        self.assertEqual(self.display.current_mode, "boot")
 
     @patch("subprocess.Popen")
     def test_start_playback(self, mock_popen):
@@ -273,15 +287,29 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
     @patch.object(NetworkWatcher, "get_ip_address", return_value="192.168.1.100")
     @patch.object(PiKaraokeClient, "is_healthy", side_effect=[False, True])
     @patch.object(ScreenGenerator, "generate_boot_screen", return_value=True)
-    @patch.object(DisplayManager, "start_idle", return_value=True)
+    @patch.object(DisplayManager, "start_boot_screen", return_value=True)
+    @patch.object(DisplayManager, "stop")
     @patch("builtins.open")
-    def test_wait_for_backend(self, mock_open, mock_start_idle, mock_boot, mock_healthy, mock_ip):
+    def test_wait_for_backend(self, mock_open, mock_stop, mock_start_boot, mock_boot, mock_healthy, mock_ip):
         self.daemon.running = True
         ready = self.daemon.wait_for_backend(max_wait_seconds=5.0)
         self.assertTrue(ready)
         self.assertEqual(mock_healthy.call_count, 2)
         mock_boot.assert_called_once()
-        mock_start_idle.assert_called_once()
+        mock_start_boot.assert_called_once()
+        mock_stop.assert_called_once_with(timeout=1.0)
+
+    @patch.object(NetworkWatcher, "get_ip_address", return_value="192.168.1.100")
+    @patch.object(PiKaraokeClient, "is_healthy", return_value=False)
+    @patch.object(ScreenGenerator, "generate_boot_screen", return_value=True)
+    @patch.object(DisplayManager, "start_boot_screen", return_value=True)
+    @patch.object(DisplayManager, "stop")
+    @patch("builtins.open")
+    def test_wait_for_backend_timeout(self, mock_open, mock_stop, mock_start_boot, mock_boot, mock_healthy, mock_ip):
+        self.daemon.running = True
+        ready = self.daemon.wait_for_backend(max_wait_seconds=0.1)
+        self.assertFalse(ready)
+        mock_stop.assert_called_once_with(timeout=1.0)
 
     @patch.object(NetworkWatcher, "update", return_value=(False, "http://192.168.1.100:5555"))
     @patch.object(OrchestratorDaemon, "render_idle_screen")

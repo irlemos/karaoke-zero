@@ -378,7 +378,7 @@ class OrchestratorDaemon:
                 output_path=boot_screen,
                 status_text="Starting PiKaraoke appliance services..."
             ):
-                self.display.start_idle(media_path=boot_screen)
+                self.display.start_boot_screen(boot_screen)
         except Exception as e:
             logger.debug("Initial graphical boot screen note: %s", e)
 
@@ -386,6 +386,8 @@ class OrchestratorDaemon:
             if self.client.is_healthy():
                 self.write_console_status("PiKaraoke is ready! Starting display engine...")
                 time.sleep(1.0)
+                # Cleanly dismiss boot splash screen so idle screen spawns cleanly on DRM/KMS
+                self.display.stop(timeout=1.0)
                 return True
 
             elapsed = int(time.time() - start_time)
@@ -393,6 +395,7 @@ class OrchestratorDaemon:
             time.sleep(2.0)
 
         logger.warning("Timed out waiting for PiKaraoke. Proceeding with startup anyway...")
+        self.display.stop(timeout=1.0)
         return False
 
 

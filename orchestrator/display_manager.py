@@ -129,14 +129,11 @@ class DisplayManager:
             logger.error("Idle media file not found: %s", target_media)
             return False
 
-        # If mpv is already actively running in idle mode, update media seamlessly via IPC
-        if self.is_running() and self.current_mode == "idle":
-            logger.debug("mpv already running in idle mode. Updating media via IPC: %s", target_media)
-            if self.send_ipc_command(["loadfile", target_media, "replace"]):
-                self.current_media = target_media
-                return True
-            logger.debug("IPC update failed or unacknowledged. Restarting mpv idle process...")
-
+        # Always terminate any running mpv instance before launching idle media.
+        # On Linux DRM/KMS direct rendering (--vo=gpu --gpu-context=drm), static images with
+        # --image-display-duration=inf do not trigger DRM plane buffer flips on IPC 'loadfile replace',
+        # leaving the display frozen on the previous frame (e.g. boot splash screen).
+        # Cleanly restarting the mpv process guarantees proper DRM plane buffer presentation.
         self.stop(timeout=1.0)
 
         args = self._build_base_args()
@@ -183,6 +180,15 @@ class DisplayManager:
             self.current_mode = "stopped"
             return False
 
+    def start_boot_screen(self, image_path: str) -> bool:
+        """
+        Displays the initial boot splash screen via MPV DRM/KMS.
+        Sets mode to 'boot' to distinguish from standby idle state.
+        """
+        success = self.start_idle(media_path=image_path)
+        if success:
+            self.current_mode = "boot"
+        return success
 
     def start_playback(self, media_target: str) -> bool:
         """
