@@ -1704,7 +1704,7 @@
       searchBtn.disabled = true;
       searchBtnText.innerText = 'Searching...';
       spinner.style.display = 'inline-block';
-      resultsContainer.innerHTML = '<div class="empty-state">Searching YouTube for karaoke tracks (this takes 10-15s)...</div>';
+      resultsContainer.innerHTML = '<div class="empty-state">Searching YouTube for karaoke tracks...</div>';
 
       try {
         const res = await fetch(`/api/songs/search?q=${encodeURIComponent(query)}`);
@@ -1745,7 +1745,8 @@
             resultsContainer.appendChild(card);
           });
         } else {
-          resultsContainer.innerHTML = '<div class="empty-state">No karaoke results found for this search. Try different terms.</div>';
+          const errMsg = data.error ? escapeHtml(data.error) : 'No karaoke results found for this search. Try different terms or paste a YouTube URL.';
+          resultsContainer.innerHTML = `<div class="empty-state">${errMsg}</div>`;
         }
       } catch (err) {
         console.error('Song search error:', err);

@@ -10,7 +10,15 @@ import unittest
 from unittest.mock import patch, MagicMock
 import subprocess
 
-from app import parse_terse_line, scan_wifi_networks, get_current_wifi_status, app, SystemSettingsManager
+from app import (
+    parse_terse_line,
+    scan_wifi_networks,
+    get_current_wifi_status,
+    app,
+    SystemSettingsManager,
+    get_ytdlp_command,
+    search_youtube_videos
+)
 
 
 class TestAdminPanel(unittest.TestCase):
@@ -278,6 +286,72 @@ class TestAdminPanel(unittest.TestCase):
             res_shutdown = self.client.post("/api/system/shutdown")
             self.assertEqual(res_shutdown.status_code, 200)
             self.assertTrue(res_shutdown.get_json()["success"])
+
+    def test_get_ytdlp_command(self):
+        with patch("shutil.which", return_value="/usr/local/bin/yt-dlp"), \
+             patch("os.path.isfile", return_value=True), \
+             patch("os.access", return_value=True):
+            cmd = get_ytdlp_command()
+            self.assertEqual(cmd, ["/usr/local/bin/yt-dlp"])
+
+        with patch("shutil.which", return_value=None), \
+             patch("os.path.isfile", side_effect=lambda p: p == "/opt/pikaraoke/venv/bin/yt-dlp"), \
+             patch("os.access", return_value=True):
+            cmd = get_ytdlp_command()
+            self.assertEqual(cmd, ["/opt/pikaraoke/venv/bin/yt-dlp"])
+
+    @patch("urllib.request.urlopen")
+    def test_search_youtube_videos_direct_url(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"title": "Direct Song", "author_name": "Artist", "thumbnail_url": "https://example.com/thumb.jpg"}'
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        results = search_youtube_videos("https://www.youtube.com/watch?v=20JSZ4u6Gy4")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], "20JSZ4u6Gy4")
+        self.assertEqual(results[0]["title"], "Direct Song")
+        self.assertEqual(results[0]["uploader"], "Artist")
+
+    @patch("urllib.request.urlopen")
+    def test_search_youtube_videos_innertube(self, mock_urlopen):
+        payload = {
+            "contents": {
+                "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [
+                                {
+                                    "itemSectionRenderer": {
+                                        "contents": [
+                                            {
+                                                "videoRenderer": {
+                                                    "videoId": "test1234567",
+                                                    "title": {"runs": [{"text": "Innertube Hit Karaoke"}]},
+                                                    "ownerText": {"runs": [{"text": "Singer Pro"}]},
+                                                    "lengthText": {"simpleText": "3:45"},
+                                                    "thumbnail": {"thumbnails": [{"url": "https://example.com/pic.jpg"}]}
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+        import json
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(payload).encode("utf-8")
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        results = search_youtube_videos("queen")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], "test1234567")
+        self.assertEqual(results[0]["title"], "Innertube Hit Karaoke")
+        self.assertEqual(results[0]["uploader"], "Singer Pro")
+        self.assertEqual(results[0]["duration"], "3:45")
 
 
 if __name__ == "__main__":

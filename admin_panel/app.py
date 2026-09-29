@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -184,6 +185,40 @@ settings_mgr = SystemSettingsManager()
 # 2. Song Search & Download Engine (yt-dlp)
 # ==============================================================================
 
+def get_ytdlp_command() -> List[str]:
+    """
+    Resolves yt-dlp executable or virtualenv module.
+    Checks system PATH, /opt/pikaraoke/venv, /usr/local/bin, /usr/bin.
+    """
+    # 1. System PATH
+    which_bin = shutil.which("yt-dlp")
+    if which_bin and os.path.isfile(which_bin) and os.access(which_bin, os.X_OK):
+        return [which_bin]
+
+    # 2. Known executable paths
+    for candidate in [
+        "/opt/pikaraoke/venv/bin/yt-dlp",
+        "/usr/local/bin/yt-dlp",
+        "/usr/bin/yt-dlp"
+    ]:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return [candidate]
+
+    # 3. Virtualenv python module
+    venv_py = "/opt/pikaraoke/venv/bin/python"
+    if os.path.isfile(venv_py) and os.access(venv_py, os.X_OK):
+        return [venv_py, "-m", "yt_dlp"]
+
+    # 4. Current interpreter fallback
+    try:
+        import yt_dlp
+        return [sys.executable, "-m", "yt_dlp"]
+    except ImportError:
+        pass
+
+    return ["yt-dlp"]
+
+
 class SongDownloadManager:
     """Manages asynchronous, non-blocking video downloads via yt-dlp."""
 
@@ -249,23 +284,25 @@ class SongDownloadManager:
             task["status"] = "downloading"
             task["progress"] = 5.0
 
-        ytdlp_bin = shutil.which("yt-dlp") or "/usr/local/bin/yt-dlp" or "/usr/bin/yt-dlp"
-        if not shutil.which(ytdlp_bin) and not os.path.isfile(ytdlp_bin):
+        ytdlp_cmd = get_ytdlp_command()
+        bin_target = ytdlp_cmd[0]
+        if not shutil.which(bin_target) and not os.path.isfile(bin_target):
             with self.lock:
                 task["status"] = "error"
                 task["error"] = "yt-dlp binary not found on system."
-            logger.error("yt-dlp binary not found.")
+            logger.error("yt-dlp binary not found on system.")
             return
 
-        # Format selector: strictly limit video height to requested quality, ALWAYS request highest quality audio
-        format_spec = f"bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best"
+        # Format selector: prioritize H.264 for hardware GPU decode on Raspberry Pi, best audio
+        format_spec = f"bestvideo[vcodec^=avc1][height<={quality}]+bestaudio[ext!=webm]/best[height<={quality}]/best"
         output_template = os.path.join(songs_dir, "%(title)s [%(id)s].%(ext)s")
 
-        cmd = [
-            ytdlp_bin,
+        cmd = ytdlp_cmd + [
             "--no-playlist",
             "-f", format_spec,
+            "-S", "vcodec:h264,res,acodec:m4a",
             "--merge-output-format", "mp4",
+            "--compat-options", "filename-sanitization",
             "--no-mtime",
             "--newline",
             "-o", output_template,
@@ -333,24 +370,119 @@ class SongDownloadManager:
 download_mgr = SongDownloadManager()
 
 
-def search_youtube_videos(query: str, max_results: int = 8) -> List[Dict[str, Any]]:
-    """Performs lightweight YouTube video search using yt-dlp flat-playlist metadata."""
-    if not query.strip():
+def search_youtube_videos(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+    """
+    Performs fast, lightweight YouTube search.
+    Primary engine: Direct YouTube Innertube API via HTTPS (zero CPU overhead, runs in ~300ms).
+    Handles direct video URLs (via oEmbed API) and query terms.
+    Fallback engine: yt-dlp subprocess with robust path resolution.
+    """
+    clean_query = query.strip()
+    if not clean_query:
         return []
 
-    ytdlp_bin = shutil.which("yt-dlp") or "/usr/local/bin/yt-dlp" or "/usr/bin/yt-dlp"
-    clean_query = query.strip()
-    cmd = [
-        ytdlp_bin,
-        f"ytsearch{max_results}:{clean_query}",
-        "--dump-json",
+    # 1. Check if user provided a direct YouTube URL or 11-char video ID
+    url_match = re.search(r"(?:v=|youtu\.be\/|embed\/|^)([A-Za-z0-9_-]{11})(?:[&?]|$)", clean_query)
+    if url_match and ("youtube.com" in clean_query or "youtu.be" in clean_query or len(clean_query) == 11):
+        vid = url_match.group(1)
+        try:
+            oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={vid}&format=json"
+            req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return [{
+                    "id": vid,
+                    "title": data.get("title") or f"YouTube Video ({vid})",
+                    "uploader": data.get("author_name") or "YouTube",
+                    "duration": "",
+                    "thumbnail": data.get("thumbnail_url") or f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
+                    "url": f"https://www.youtube.com/watch?v={vid}"
+                }]
+        except Exception as e:
+            logger.debug("Direct oEmbed lookup error for %s: %s", vid, e)
+            return [{
+                "id": vid,
+                "title": f"YouTube Video ({vid})",
+                "uploader": "YouTube",
+                "duration": "",
+                "thumbnail": f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
+                "url": f"https://www.youtube.com/watch?v={vid}"
+            }]
+
+    # 2. Primary Method: Direct YouTube Innertube Web API (Fast & Zero CPU)
+    # Target karaoke tracks if not explicitly typed in query
+    search_term = clean_query
+    if "karaoke" not in search_term.lower():
+        search_term = f"{clean_query} karaoke"
+
+    try:
+        url = "https://www.youtube.com/youtubei/v1/search"
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        payload = {
+            "context": {
+                "client": {
+                    "clientName": "WEB",
+                    "clientVersion": "2.20240101.01.00"
+                }
+            },
+            "query": search_term
+        }
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        sections = data.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get("primaryContents", {}).get("sectionListRenderer", {}).get("contents", [])
+        results = []
+        for sec in sections:
+            items = sec.get("itemSectionRenderer", {}).get("contents", [])
+            for it in items:
+                v = it.get("videoRenderer")
+                if v and "videoId" in v:
+                    vid = v["videoId"]
+                    title = "".join(r.get("text", "") for r in v.get("title", {}).get("runs", []))
+                    uploader = "".join(r.get("text", "") for r in v.get("ownerText", {}).get("runs", []))
+                    duration = v.get("lengthText", {}).get("simpleText", "")
+                    thumbs = v.get("thumbnail", {}).get("thumbnails", [])
+                    thumb = thumbs[-1].get("url") if thumbs else f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+                    results.append({
+                        "id": vid,
+                        "title": title or "Unknown Title",
+                        "uploader": uploader or "Unknown Artist",
+                        "duration": duration,
+                        "thumbnail": thumb,
+                        "url": f"https://www.youtube.com/watch?v={vid}"
+                    })
+                    if len(results) >= max_results:
+                        break
+            if len(results) >= max_results:
+                break
+
+        if results:
+            logger.info("YouTube Innertube search found %d results for '%s'", len(results), search_term)
+            return results
+    except Exception as e:
+        logger.warning("YouTube Innertube search failed: %s. Falling back to yt-dlp...", e)
+
+    # 3. Fallback Method: yt-dlp Subprocess
+    ytdlp_cmd = get_ytdlp_command()
+    cmd = ytdlp_cmd + [
+        f"ytsearch{max_results}:{search_term}",
+        "-j",
+        "--no-playlist",
         "--flat-playlist",
         "--skip-download",
         "--no-warnings"
     ]
 
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=40)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            logger.error("yt-dlp search failed (code %d): %s", res.returncode, res.stderr.strip()[:300])
+            return []
+
         results = []
         for line in res.stdout.strip().splitlines():
             if not line.strip():
@@ -360,27 +492,31 @@ def search_youtube_videos(query: str, max_results: int = 8) -> List[Dict[str, An
                 vid = data.get("id")
                 if not vid:
                     continue
-
                 thumbnails = data.get("thumbnails", [])
                 thumb_url = thumbnails[-1].get("url") if thumbnails else f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+                duration_raw = data.get("duration")
+                duration_str = data.get("duration_string") or ""
+                if not duration_str and isinstance(duration_raw, (int, float)):
+                    duration_str = f"{int(duration_raw) // 60}:{int(duration_raw) % 60:02d}"
 
                 results.append({
                     "id": vid,
                     "title": data.get("title") or "Unknown Title",
                     "uploader": data.get("uploader") or data.get("channel") or "Unknown Artist",
-                    "duration": data.get("duration_string") or str(data.get("duration") or ""),
+                    "duration": duration_str,
                     "thumbnail": thumb_url,
                     "url": f"https://www.youtube.com/watch?v={vid}"
                 })
             except Exception:
                 continue
 
+        logger.info("yt-dlp fallback search found %d results for '%s'", len(results), search_term)
         return results
     except subprocess.TimeoutExpired:
-        logger.warning("YouTube search timed out for query: %s", clean_query)
+        logger.warning("yt-dlp search timed out after 60s for query: %s", search_term)
         return []
     except Exception as e:
-        logger.error("Error executing YouTube search: %s", e)
+        logger.error("Error executing yt-dlp fallback search: %s", e)
         return []
 
 
