@@ -338,6 +338,24 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
         mock_stop.assert_called_once_with(timeout=1.0)
         mock_idle.assert_called_once()
 
+    def test_idle_media_defaults_to_graphical_screen(self):
+        self.assertIsNone(self.daemon.bg_video)
+        with patch.object(self.daemon, "_update_idle_screen", return_value="/tmp/karaoke_idle_screen.png") as mock_update:
+            target = self.daemon._resolve_idle_media()
+            self.assertEqual(target, "/tmp/karaoke_idle_screen.png")
+            mock_update.assert_called_once()
+
+    @patch("os.path.isfile")
+    def test_resolve_background_video_no_autodiscovery(self, mock_isfile):
+        # Even if bundled video files exist in the environment, auto-discovery is disabled
+        mock_isfile.return_value = True
+        video = self.daemon._resolve_background_video(None)
+        self.assertIsNone(video)
+
+        # Only returns path when explicitly passed and existing
+        custom_video = self.daemon._resolve_background_video("/opt/custom.mp4")
+        self.assertEqual(custom_video, "/opt/custom.mp4")
+
 
 if __name__ == "__main__":
     unittest.main()

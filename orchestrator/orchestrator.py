@@ -84,48 +84,16 @@ class OrchestratorDaemon:
 
     def _resolve_background_video(self, custom_path: Optional[str]) -> Optional[str]:
         """
-        Locates an idle background video if custom path is provided or installed on external HD.
-        Returns None if no local video file exists so the graphical details screen is used instead.
+        Validates custom background video path if explicitly provided via CLI/env.
+        Automatic fallback searching for bundled videos (e.g. night_sea.mp4) is
+        disabled to prevent unnecessary CPU/GPU load on Pi Zero W and guarantee
+        the high-contrast graphical details screen with QR code is always displayed during idle.
         """
         if custom_path and os.path.isfile(custom_path):
-            logger.info("Using custom background video: %s", custom_path)
+            logger.info("Using explicitly configured background video: %s", custom_path)
             return custom_path
 
-        # 1. Check external HDD custom media directory
-        hdd_candidates = [
-            "/mnt/external_hd/karaoke/media/idle_loop.mp4",
-            "/mnt/external_hd/karaoke/media/night_sea.mp4",
-            "/mnt/external_hd/karaoke/idle_loop.mp4",
-            "/mnt/external_hd/karaoke/night_sea.mp4"
-        ]
-        for path in hdd_candidates:
-            if os.path.isfile(path):
-                logger.info("Using external HDD background video: %s", path)
-                return path
-
-        # 2. Try resolving via installed python pikaraoke package
-        try:
-            import pikaraoke
-            pkg_video = os.path.join(os.path.dirname(pikaraoke.__file__), "static", "video", "night_sea.mp4")
-            if os.path.isfile(pkg_video):
-                logger.info("Using installed PiKaraoke package video: %s", pkg_video)
-                return pkg_video
-        except ImportError:
-            pass
-
-        # 3. Known PiKaraoke clone and system directories
-        known_locations = [
-            "/opt/pikaraoke/pikaraoke/static/video/night_sea.mp4",
-            "/usr/local/share/pikaraoke/static/video/night_sea.mp4",
-            "/usr/share/pikaraoke/static/video/night_sea.mp4",
-            os.path.expanduser("~/pikaraoke/pikaraoke/static/video/night_sea.mp4")
-        ]
-        for path in known_locations:
-            if os.path.isfile(path):
-                logger.info("Using installed PiKaraoke video: %s", path)
-                return path
-
-        logger.info("No local background video found; using graphical details screen.")
+        logger.info("No custom background video configured; using static graphical details screen (Zero CPU).")
         return None
 
     def _update_idle_screen(self) -> str:
