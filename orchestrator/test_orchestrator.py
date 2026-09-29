@@ -233,6 +233,19 @@ class TestDisplayManager(unittest.TestCase):
         self.assertEqual(self.display.current_mode, "stopped")
         self.assertIsNone(self.display.process)
 
+    @patch.object(DisplayManager, "send_ipc_command", return_value=True)
+    def test_set_pause(self, mock_ipc):
+        self.display.set_pause(True)
+        mock_ipc.assert_called_once_with(["set_property", "pause", True])
+
+    @patch.object(DisplayManager, "is_running", return_value=True)
+    @patch.object(DisplayManager, "send_ipc_command", return_value=True)
+    def test_restart_playback_via_ipc(self, mock_ipc, mock_running):
+        res = self.display.restart_playback()
+        self.assertTrue(res)
+        mock_ipc.assert_any_call(["seek", 0, "absolute"])
+        mock_ipc.assert_any_call(["set_property", "pause", False])
+
 
 class TestPiKaraokeClient(unittest.TestCase):
 
@@ -365,6 +378,30 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
         self.daemon.on_skip_event()
         mock_stop.assert_called_once_with(timeout=1.0)
         mock_idle.assert_called_once()
+
+    @patch.object(DisplayManager, "restart_playback")
+    def test_on_restart_event(self, mock_restart):
+        self.daemon.state = OrchestratorDaemon.STATE_PLAYING
+        self.daemon.last_pause_state = True
+        self.daemon.on_restart_event()
+        mock_restart.assert_called_once()
+        self.assertFalse(self.daemon.last_pause_state)
+
+    @patch.object(DisplayManager, "set_pause")
+    def test_on_pause_event(self, mock_pause):
+        self.daemon.state = OrchestratorDaemon.STATE_PLAYING
+        self.daemon.last_pause_state = False
+        self.daemon.on_pause_event()
+        mock_pause.assert_called_once_with(True)
+        self.assertTrue(self.daemon.last_pause_state)
+
+    @patch.object(DisplayManager, "set_pause")
+    def test_on_play_event(self, mock_pause):
+        self.daemon.state = OrchestratorDaemon.STATE_PLAYING
+        self.daemon.last_pause_state = True
+        self.daemon.on_play_event()
+        mock_pause.assert_called_once_with(False)
+        self.assertFalse(self.daemon.last_pause_state)
 
     def test_idle_media_defaults_to_graphical_screen(self):
         self.assertIsNone(self.daemon.bg_video)

@@ -42,6 +42,9 @@ class PiKaraokeClient:
 
         # Callbacks
         self.on_skip_callback: Optional[Callable[[], None]] = None
+        self.on_restart_callback: Optional[Callable[[], None]] = None
+        self.on_pause_callback: Optional[Callable[[], None]] = None
+        self.on_play_callback: Optional[Callable[[], None]] = None
         self.on_state_change_callback: Optional[Callable[[Dict[str, Any]], None]] = None
 
     def get_now_playing(self) -> Optional[Dict[str, Any]]:
@@ -174,9 +177,28 @@ class PiKaraokeClient:
                 if self.on_skip_callback:
                     self.on_skip_callback()
 
+            @self.sio.on("restart")
+            def on_restart(data=None):
+                logger.info("Received 'restart' event from PiKaraoke")
+                if self.on_restart_callback:
+                    self.on_restart_callback()
+
+            @self.sio.on("pause")
+            def on_pause(data=None):
+                logger.info("Received 'pause' event from PiKaraoke")
+                if self.on_pause_callback:
+                    self.on_pause_callback()
+
+            @self.sio.on("play")
+            def on_play(data=None):
+                logger.info("Received 'play' event from PiKaraoke")
+                if self.on_play_callback:
+                    self.on_play_callback()
+
+            @self.sio.on("now_playing")
             @self.sio.on("now_playing_update")
             def on_update(data=None):
-                logger.debug("Received 'now_playing_update' event: %s", data)
+                logger.debug("Received now_playing update: %s", data)
                 if self.on_state_change_callback and isinstance(data, dict):
                     self.on_state_change_callback(data)
 

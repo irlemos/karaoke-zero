@@ -141,6 +141,28 @@ class OrchestratorDaemon:
             self.display.stop(timeout=1.0)
             self.transition_to_idle()
 
+    def on_restart_event(self) -> None:
+        """Callback triggered when a restart event is received via WebSocket."""
+        logger.info("Restart triggered. Resetting current track playback to beginning (0:00)...")
+        if self.state == self.STATE_PLAYING:
+            self.playback_start_time = time.time()
+            self.last_pause_state = False
+            self.display.restart_playback()
+
+    def on_pause_event(self) -> None:
+        """Callback triggered when a pause event is received via WebSocket."""
+        logger.info("Pause triggered via WebSocket.")
+        if self.state == self.STATE_PLAYING:
+            self.display.set_pause(True)
+            self.last_pause_state = True
+
+    def on_play_event(self) -> None:
+        """Callback triggered when a play event is received via WebSocket."""
+        logger.info("Play (resume) triggered via WebSocket.")
+        if self.state == self.STATE_PLAYING:
+            self.display.set_pause(False)
+            self.last_pause_state = False
+
 
     def _find_local_song_file(self, song_title: str) -> Optional[str]:
         """
@@ -320,7 +342,7 @@ class OrchestratorDaemon:
                 is_paused = bool(now_playing_data.get("is_paused"))
                 if is_paused != self.last_pause_state:
                     logger.info("Syncing pause state: is_paused=%s", is_paused)
-                    self.display.pause_toggle()
+                    self.display.set_pause(is_paused)
                     self.last_pause_state = is_paused
 
     def write_console_status(self, message: str, tty_device: str = "/dev/tty1") -> None:
@@ -406,6 +428,9 @@ class OrchestratorDaemon:
 
         # Setup Socket.IO callbacks and initiate connection
         self.client.on_skip_callback = self.on_skip_event
+        self.client.on_restart_callback = self.on_restart_event
+        self.client.on_pause_callback = self.on_pause_event
+        self.client.on_play_callback = self.on_play_event
         self.client.connect_socketio()
 
         # Initial transition to IDLE

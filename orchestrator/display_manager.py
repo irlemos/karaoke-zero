@@ -282,3 +282,29 @@ class DisplayManager:
         """Toggles playback pause state."""
         return self.send_ipc_command(["cycle", "pause"])
 
+    def set_pause(self, paused: bool) -> bool:
+        """
+        Explicitly sets playback pause state (idempotent).
+        """
+        return self.send_ipc_command(["set_property", "pause", bool(paused)])
+
+    def restart_playback(self) -> bool:
+        """
+        Restarts the active song from the beginning (0:00) and ensures playback is unpaused.
+        Uses IPC seek 0 absolute without dropping HDMI or audio driver sessions.
+        """
+        if not self.is_running():
+            return False
+
+        # Seek to beginning
+        if self.send_ipc_command(["seek", 0, "absolute"]):
+            self.send_ipc_command(["set_property", "pause", False])
+            logger.info("Restarted playback from beginning (0:00) via IPC.")
+            return True
+
+        # Fallback to restarting process if IPC fails
+        if self.current_media:
+            logger.warning("IPC seek failed. Relaunching playback process from beginning...")
+            return self.start_playback(self.current_media)
+        return False
+
