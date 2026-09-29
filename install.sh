@@ -427,7 +427,42 @@ fi
 log_info "Installing KaraokeZero appliance services into ${KARAOKEZERO_INSTALL_DIR}..."
 
 if [[ "${DRY_RUN}" != "true" ]]; then
-    mkdir -p "${KARAOKEZERO_INSTALL_DIR}"
+    # 7.1 Stop all running and legacy services prior to files replacement
+    log_info "Stopping active and legacy systemd services..."
+    systemctl stop wifi_manager.service admin_panel.service orchestrator.service pikaraoke.service 2>/dev/null || true
+    pkill -f "opt/karaokezero/wifi_manager" 2>/dev/null || true
+
+    # 7.2 Remove legacy wifi_manager systemd unit if present
+    if systemctl is-enabled wifi_manager.service &>/dev/null || [[ -f /etc/systemd/system/wifi_manager.service ]]; then
+        log_info "Disabling and removing obsolete wifi_manager.service..."
+        systemctl disable wifi_manager.service 2>/dev/null || true
+        rm -f /etc/systemd/system/wifi_manager.service
+        rm -f /etc/systemd/system/multi-user.target.wants/wifi_manager.service
+        systemctl reset-failed wifi_manager.service 2>/dev/null || true
+    fi
+
+    # 7.3 Clean previous installation directory while preserving user configurations
+    if [[ -d "${KARAOKEZERO_INSTALL_DIR}" ]]; then
+        log_info "Purging previous installation files in ${KARAOKEZERO_INSTALL_DIR} (preserving configurations)..."
+        CFG_BACKUP_DIR=$(mktemp -d /tmp/kz_cfg_backup.XXXXXX)
+
+        # Back up existing configuration files if found (.env, .ini, .conf, .json)
+        find "${KARAOKEZERO_INSTALL_DIR}" -maxdepth 2 -type f \( -name "*.env" -o -name "*.ini" -o -name "*.conf" -o -name "*.json" \) -not -path "*/__pycache__/*" -exec cp --parents -t "${CFG_BACKUP_DIR}" {} + 2>/dev/null || true
+
+        # Completely remove old directory, scripts, and legacy modules (e.g. wifi_manager/)
+        rm -rf "${KARAOKEZERO_INSTALL_DIR}"
+        mkdir -p "${KARAOKEZERO_INSTALL_DIR}"
+
+        # Restore preserved configurations if any existed
+        if [[ -d "${CFG_BACKUP_DIR}${KARAOKEZERO_INSTALL_DIR}" ]]; then
+            cp -rn "${CFG_BACKUP_DIR}${KARAOKEZERO_INSTALL_DIR}/"* "${KARAOKEZERO_INSTALL_DIR}/" 2>/dev/null || true
+        fi
+        rm -rf "${CFG_BACKUP_DIR}"
+    else
+        mkdir -p "${KARAOKEZERO_INSTALL_DIR}"
+    fi
+
+    # 7.4 Copy fresh service modules
     cp -r "${PROJECT_ROOT}/admin_panel" "${KARAOKEZERO_INSTALL_DIR}/"
     cp -r "${PROJECT_ROOT}/orchestrator" "${KARAOKEZERO_INSTALL_DIR}/"
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/admin_panel/app.py"
@@ -669,6 +704,11 @@ EOF
     systemctl daemon-reload
     log_info "Enabling KaraokeZero services for auto-start on boot..."
     systemctl enable admin_panel.service pikaraoke.service orchestrator.service
+
+    if [[ "${ENABLE_SERVICES_NOW}" == "true" ]]; then
+        log_info "Starting KaraokeZero appliance services..."
+        systemctl restart admin_panel.service pikaraoke.service orchestrator.service 2>/dev/null || true
+    fi
 fi
 
 echo ""

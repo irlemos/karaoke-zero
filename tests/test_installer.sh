@@ -105,6 +105,22 @@ test_log_generation_and_freshness() {
     rm -f "${log_file}"
 }
 
+# Test 8: Reinstallation & Legacy Services Cleanup Logic
+test_reinstall_cleanup_logic() {
+    # Verify installer script contains teardown for obsolete wifi_manager service
+    grep -q "systemctl stop wifi_manager.service" "${INSTALLER}" || return 1
+    grep -q "systemctl disable wifi_manager.service" "${INSTALLER}" || return 1
+    grep -q "rm -f /etc/systemd/system/wifi_manager.service" "${INSTALLER}" || return 1
+
+    # Verify installer purges previous files while preserving configs
+    grep -q "Purging previous installation files" "${INSTALLER}" || return 1
+    grep -q "rm -rf \"\${KARAOKEZERO_INSTALL_DIR}\"" "${INSTALLER}" || return 1
+    grep -q "CFG_BACKUP_DIR" "${INSTALLER}" || return 1
+
+    # Verify immediate service startup check
+    grep -q "systemctl restart admin_panel.service" "${INSTALLER}" || return 1
+}
+
 echo "==================================================================="
 echo "Running KaraokeZero Installer Test Suite"
 echo "==================================================================="
@@ -116,6 +132,7 @@ run_test "Non-interactive incomplete config check" test_non_interactive_failure
 run_test "Interactive external HD input simulation" test_interactive_external_hd
 run_test "Interactive internal SD card input simulation" test_interactive_sd_card
 run_test "Clean single log file generation" test_log_generation_and_freshness
+run_test "Reinstallation & legacy cleanup validation" test_reinstall_cleanup_logic
 
 echo "==================================================================="
 if [[ "${FAILED}" -eq 0 ]]; then
