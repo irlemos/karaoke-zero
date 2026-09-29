@@ -178,7 +178,7 @@ class ScreenGenerator:
             ssid_label = wifi_ssid if wifi_ssid else "Venue Wi-Fi or Hotspot 'KaraokeZero-Setup'"
             draw.rounded_rectangle([pad_x, curr_y, pad_x + badge_w, curr_y + badge_h], radius=12, fill=(35, 45, 75), outline=(60, 80, 130), width=1)
             draw.text((pad_x + 20, curr_y + badge_h // 2), f"Wi-Fi: {ssid_label}", fill=self.ACCENT_YELLOW, font=font_body, anchor="lm")
-            curr_y += 85
+            curr_y += 95
 
             # Step 2: Web App URL
             draw.text((pad_x, curr_y), "STEP 2: Open Web Browser or Scan QR Code", fill=self.TEXT_WHITE, font=font_step_title)
@@ -187,23 +187,16 @@ class ScreenGenerator:
             url_badge_h = 75
             draw.rounded_rectangle([pad_x, curr_y, pad_x + badge_w, curr_y + url_badge_h], radius=14, fill=(15, 35, 55), outline=self.ACCENT_CYAN, width=2)
             draw.text((pad_x + 25, curr_y + url_badge_h // 2), web_url, fill=self.ACCENT_CYAN, font=font_url, anchor="lm")
-            curr_y += 105
+            curr_y += 120
 
-            # Step 3: Wi-Fi Setup Portal
-            draw.text((pad_x, curr_y), "STEP 3: Wi-Fi Setup Portal (Venue Configuration)", fill=self.TEXT_WHITE, font=font_step_title)
-            curr_y += 35
-            portal_url = f"http://{ip_address}:{portal_port}" if ip_address else f"http://192.168.4.1:{portal_port}"
-            portal_badge_h = 55
-            draw.rounded_rectangle([pad_x, curr_y, pad_x + badge_w, curr_y + portal_badge_h], radius=12, fill=(35, 45, 75), outline=(60, 80, 130), width=1)
-            draw.text((pad_x + 20, curr_y + portal_badge_h // 2), f"Setup Portal: {portal_url}", fill=self.TEXT_MUTED, font=font_body, anchor="lm")
-            curr_y += 95
-
-            # Hints & Tips
+            # Hints & Tips for Singers
             draw.line([(pad_x, curr_y), (pad_x + badge_w, curr_y)], fill=self.CARD_BORDER, width=1)
-            curr_y += 25
-            draw.text((pad_x, curr_y), "• Add your favorite songs to the queue directly from your phone.", fill=self.TEXT_MUTED, font=font_body)
-            curr_y += 35
-            draw.text((pad_x, curr_y), "• Search by song title or artist and control playback seamlessly.", fill=self.TEXT_MUTED, font=font_body)
+            curr_y += 30
+            draw.text((pad_x, curr_y), "• Scan the QR code with your phone camera to open the karaoke songbook.", fill=self.TEXT_MUTED, font=font_body)
+            curr_y += 40
+            draw.text((pad_x, curr_y), "• Search thousands of songs by artist or title and add them to the queue.", fill=self.TEXT_MUTED, font=font_body)
+            curr_y += 40
+            draw.text((pad_x, curr_y), "• Sing along when your song appears on the main screen!", fill=self.TEXT_MUTED, font=font_body)
 
             # 4. Footer status bar
             footer_y = self.height - 70

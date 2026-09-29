@@ -109,7 +109,6 @@ class OrchestratorDaemon:
             qr_path=qr_path,
             ip_address=ip,
             port=self.network.port,
-            portal_port=8888,
             wifi_ssid=ssid,
             status_text="SYSTEM READY  |  0 ACTIVE SONGS IN QUEUE  |  STANDBY"
         )
@@ -177,7 +176,6 @@ class OrchestratorDaemon:
         """
         ip = self.network.get_ip_address()
         web_url = f"http://{ip}:{self.network.port}" if ip else f"http://127.0.0.1:{self.network.port}"
-        portal_url = f"http://{ip}:8888" if ip else "http://192.168.4.1:8888"
 
         qr_text = self.network.get_terminal_qr(web_url)
         qr_lines = []
@@ -201,7 +199,6 @@ class OrchestratorDaemon:
             "",
             "   • Wi-Fi Network:      Connect to Venue Wi-Fi or Hotspot 'KaraokeZero-Setup'",
             f"   • PiKaraoke Web App:  {web_url}",
-            f"   • Wi-Fi Setup Portal: {portal_url}",
             "",
             "  ----------------------------------------------------------------------------",
             "   Status: IDLE (Waiting for singers) | 0 Active Songs | CPU: 0% Standby      ",
