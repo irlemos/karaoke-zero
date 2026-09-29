@@ -138,6 +138,7 @@ class OrchestratorDaemon:
         """Callback triggered when a skip event is received via WebSocket."""
         logger.info("Skip triggered. Stopping active playback...")
         if self.state == self.STATE_PLAYING:
+            self.clear_console()
             self.display.stop(timeout=1.0)
             self.transition_to_idle()
 
@@ -191,51 +192,32 @@ class OrchestratorDaemon:
                 logger.debug("Error scanning %s for song: %s", base_dir, e)
         return None
 
-    def render_idle_screen(self, tty_device: str = "/dev/tty1") -> None:
+    def clear_console(self, tty_device: str = "/dev/tty1") -> None:
         """
-        Renders the static, zero-CPU idle screen to the HDMI console (/dev/tty1).
-        Displays appliance branding, network connection info, and a scannable QR code.
+        Clears the Linux virtual terminal and scrollback buffer to pitch black,
+        disabling the visible cursor and setting black-on-black attributes.
+        Ensures zero text flicker during MPV DRM/KMS transitions.
         """
-        ip = self.network.get_ip_address()
-        web_url = f"http://{ip}:{self.network.port}" if ip else f"http://127.0.0.1:{self.network.port}"
-
-        qr_text = self.network.get_terminal_qr(web_url)
-        qr_lines = []
-        if qr_text:
-            for line in qr_text.splitlines():
-                qr_lines.append(f"          {line}")
-            qr_block = "\n".join(qr_lines)
-        else:
-            qr_block = f"          [ QR Code Available at {web_url} ]"
-
-        screen = [
-            "",
-            "  ============================================================================",
-            "                            K A R A O K E - Z E R O                           ",
-            "                     Standalone Offline Karaoke Appliance                     ",
-            "  ============================================================================",
-            "",
-            "                 >>> SCAN WITH YOUR PHONE TO CHOOSE SONGS <<<                 ",
-            "",
-            qr_block,
-            "",
-            "   • Wi-Fi Network:      Connect to Venue Wi-Fi or Hotspot 'KaraokeZero-Setup'",
-            f"   • PiKaraoke Web App:  {web_url}",
-            "",
-            "  ----------------------------------------------------------------------------",
-            "   Status: IDLE (Waiting for singers) | 0 Active Songs | CPU: 0% Standby      ",
-            "  ============================================================================",
-            ""
-        ]
-
         try:
             with open(tty_device, "w", encoding="utf-8") as f:
-                f.write("\033[2J\033[H\033[?25l" + "\n".join(screen) + "\n")
+                # \033[2J: Clear entire visible screen
+                # \033[3J: Clear terminal scrollback buffer completely
+                # \033[H: Move cursor to home position (1,1)
+                # \033[?25l: Hide console cursor (suppresses blinking underscore/block)
+                # \033[30;40m: Set black foreground on black background
+                f.write("\033[2J\033[3J\033[H\033[?25l\033[30;40m")
                 f.flush()
         except PermissionError:
-            logger.debug("Insufficient permissions to write idle screen to %s", tty_device)
+            logger.debug("Insufficient permissions to clear console %s", tty_device)
         except Exception as e:
-            logger.debug("Failed to write idle screen to console %s: %s", tty_device, e)
+            logger.debug("Failed to clear console %s: %s", tty_device, e)
+
+    def render_idle_screen(self, tty_device: str = "/dev/tty1") -> None:
+        """
+        Ensures the local HDMI console (/dev/tty1) remains clean and pitch black
+        beneath the graphical MPV DRM/KMS idle display, preventing text flickers.
+        """
+        self.clear_console(tty_device)
 
     def transition_to_idle(self) -> None:
         """Transitions state machine to IDLE state and activates the graphical details screen."""
@@ -244,6 +226,9 @@ class OrchestratorDaemon:
         self.active_song_id = None
         self.last_pause_state = False
 
+        # Ensure HDMI console is clean and pitch black
+        self.clear_console()
+
         # Ensure network IP and QR code are refreshed
         self.network.update()
 
@@ -251,7 +236,7 @@ class OrchestratorDaemon:
         target_media = self._resolve_idle_media()
         self.display.start_idle(media_path=target_media)
 
-        # Also write static details to tty1 console as secondary fallback
+        # Also ensure tty1 console remains dark beneath the graphical display
         self.render_idle_screen()
 
     def transition_to_playing(self, song_title: str, stream_url: str) -> None:
@@ -261,8 +246,8 @@ class OrchestratorDaemon:
         self.active_song_id = stream_url
         self.playback_start_time = time.time()
 
-        # Display loading notification on console
-        self.write_console_status(f"Starting track: {song_title}...")
+        # Clear HDMI console to solid black before stopping idle and starting video
+        self.clear_console()
 
         # 1. Check local storage first, fallback to HTTP stream
         local_path = self._find_local_song_file(song_title)
@@ -317,11 +302,25 @@ class OrchestratorDaemon:
         elif self.state == self.STATE_PLAYING:
             # Check if MPV process is still running
             if not self.display.is_running():
+                # Immediately ensure console is clean and pitch black
+                self.clear_console()
                 duration = time.time() - getattr(self, "playback_start_time", 0)
                 logger.info("Playback process exited after %.1fs.", duration)
                 if duration >= 3.0:
                     logger.info("Track completed normally. Notifying PiKaraoke.")
                     self.client.notify_end_song(reason="complete")
+
+                    # Check if another track is already queued in PiKaraoke to avoid
+                    # flashing the idle screen between consecutive songs.
+                    time.sleep(0.3)
+                    next_track = self.client.get_now_playing()
+                    if next_track and next_track.get("now_playing") and next_track.get("now_playing_url"):
+                        next_title = next_track.get("now_playing")
+                        next_url = next_track.get("now_playing_url")
+                        if next_url != self.active_song_id:
+                            logger.info("Advancing directly to next queued song: '%s'", next_title)
+                            self.transition_to_playing(next_title, next_url)
+                            return
                 else:
                     logger.warning("Playback exited prematurely (%.1fs). Avoiding accidental track drop.", duration)
                 self.transition_to_idle()
@@ -334,6 +333,7 @@ class OrchestratorDaemon:
 
                 if not current_song or not current_url:
                     logger.info("PiKaraoke reports no active track. Halting playback...")
+                    self.clear_console()
                     self.display.stop(timeout=1.0)
                     self.transition_to_idle()
                     return
@@ -347,47 +347,22 @@ class OrchestratorDaemon:
 
     def write_console_status(self, message: str, tty_device: str = "/dev/tty1") -> None:
         """
-        Renders a clean appliance startup status banner to the local framebuffer / tty1 console.
-        This provides clear visual feedback on the HDMI output during boot before the display
-        engine takes over.
+        Logs appliance status and guarantees local console (/dev/tty1) remains pitch black.
+        Avoids printing ASCII banners that cause visible text mode flickers between video scenes.
         """
-        ip = self.network.get_ip_address()
-        web_url = f"http://{ip}:{self.network.port}" if ip else f"http://127.0.0.1:{self.network.port}"
-        portal_url = f"http://{ip}:8888" if ip else "http://192.168.4.1:8888"
-
-        banner = [
-            "",
-            "  ================================================================",
-            "                   KARAOKE-ZERO APPLIANCE BOOT                    ",
-            "  ================================================================",
-            "   Hardware:   Raspberry Pi Zero W (ARMv6, VideoCore IV GPU)      ",
-            "   Display:    MPV direct DRM/KMS (No X11 / Wayland)              ",
-            "   Audio:      HDMI / 3.5mm P2 Audio (vc4-hdmi via ALSA)          ",
-            f"   Network IP: {ip or 'Connecting to Wi-Fi...'}",
-            f"   PiKaraoke:  {web_url}",
-            f"   Portal:     {portal_url}",
-            "  ----------------------------------------------------------------",
-            f"   Status:     {message}",
-            "  ================================================================",
-            ""
-        ]
-
-        try:
-            with open(tty_device, "w", encoding="utf-8") as f:
-                f.write("\033[2J\033[H\033[?25l" + "\n".join(banner) + "\n")
-                f.flush()
-        except PermissionError:
-            logger.debug("Insufficient permissions to write to %s", tty_device)
-        except Exception as e:
-            logger.debug("Failed to write status to console %s: %s", tty_device, e)
+        logger.info("Status: %s", message)
+        self.clear_console(tty_device)
 
     def wait_for_backend(self, max_wait_seconds: float = 120.0) -> bool:
         """
         Waits for PiKaraoke web service to become operational while outputting status
-        both graphically via MPV DRM/KMS and to the local HDMI console (/dev/tty1).
+        both graphically via MPV DRM/KMS and keeping the local HDMI console (/dev/tty1) clean.
         """
         logger.info("Awaiting PiKaraoke service readiness at %s...", self.pikaraoke_url)
         start_time = time.time()
+
+        # Ensure HDMI console is clean and pitch black before any initial screen
+        self.clear_console()
 
         # Render initial boot/startup screen so HDMI output is graphical from the earliest stage
         try:
@@ -406,6 +381,7 @@ class OrchestratorDaemon:
                 time.sleep(1.0)
                 # Cleanly dismiss boot splash screen so idle screen spawns cleanly on DRM/KMS
                 self.display.stop(timeout=1.0)
+                self.clear_console()
                 return True
 
             elapsed = int(time.time() - start_time)
@@ -414,14 +390,17 @@ class OrchestratorDaemon:
 
         logger.warning("Timed out waiting for PiKaraoke. Proceeding with startup anyway...")
         self.display.stop(timeout=1.0)
+        self.clear_console()
         return False
-
 
     def run(self) -> None:
         """Runs the main orchestrator daemon loop."""
         self.setup_signals()
         self.running = True
         logger.info("Starting KaraokeZero Orchestrator Daemon (Target: %s)", self.pikaraoke_url)
+
+        # Clear local virtual console immediately to eliminate boot logs and cursor
+        self.clear_console()
 
         # Wait for backend and display boot progress on /dev/tty1
         self.wait_for_backend()
@@ -451,6 +430,7 @@ class OrchestratorDaemon:
         self.state = self.STATE_SHUTDOWN
         self.client.disconnect()
         self.display.stop(timeout=2.0)
+        self.clear_console()
         logger.info("Orchestrator stopped cleanly.")
 
 

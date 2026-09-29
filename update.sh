@@ -243,6 +243,9 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         if [[ -f "${PROJECT_ROOT}/systemd/admin_panel.service" ]]; then
             cp "${PROJECT_ROOT}/systemd/admin_panel.service" /etc/systemd/system/
         fi
+        if [[ -f "${PROJECT_ROOT}/systemd/orchestrator.service" ]]; then
+            cp "${PROJECT_ROOT}/systemd/orchestrator.service" /etc/systemd/system/
+        fi
 
         # Remove obsolete wifi_manager.service if still present on system
         if [[ -f /etc/systemd/system/wifi_manager.service ]]; then
@@ -252,12 +255,35 @@ if [[ "${DRY_RUN}" != "true" ]]; then
             systemctl reset-failed wifi_manager.service 2>/dev/null || true
         fi
 
+        # Mask getty login prompt on tty1 so HDMI output stays pitch black between graphical scenes
+        systemctl disable --now getty@tty1.service 2>/dev/null || true
+        systemctl mask getty@tty1.service 2>/dev/null || true
+
+        # Ensure boot configs suppress terminal text and cursor if boot files exist
+        BOOT_CONFIG="/boot/firmware/config.txt"
+        [[ ! -f "${BOOT_CONFIG}" && -f "/boot/config.txt" ]] && BOOT_CONFIG="/boot/config.txt"
+        if [[ -f "${BOOT_CONFIG}" ]]; then
+            if ! grep -q "^disable_splash=1" "${BOOT_CONFIG}"; then
+                echo "disable_splash=1" >> "${BOOT_CONFIG}"
+            fi
+        fi
+
+        BOOT_CMDLINE="/boot/firmware/cmdline.txt"
+        [[ ! -f "${BOOT_CMDLINE}" && -f "/boot/cmdline.txt" ]] && BOOT_CMDLINE="/boot/cmdline.txt"
+        if [[ -f "${BOOT_CMDLINE}" ]]; then
+            for opt in "consoleblank=0" "vt.global_cursor_default=0" "quiet" "loglevel=3" "logo.nologo"; do
+                if ! grep -q "${opt}" "${BOOT_CMDLINE}"; then
+                    sed -i "$ s/$/ ${opt}/" "${BOOT_CMDLINE}"
+                fi
+            done
+        fi
+
         systemctl daemon-reload
         systemctl enable admin_panel.service orchestrator.service pikaraoke.service 2>/dev/null || true
-        log_success "Systemd services updated and reloaded."
+        log_success "Systemd services and display settings updated and reloaded."
     fi
 else
-    log_info "[DRY-RUN] Would update systemd service unit files and execute daemon-reload."
+    log_info "[DRY-RUN] Would update systemd service unit files, mask getty@tty1, tune console cmdline, and execute daemon-reload."
 fi
 
 # ------------------------------------------------------------------------------

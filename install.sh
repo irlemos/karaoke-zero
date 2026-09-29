@@ -524,6 +524,11 @@ if [[ "${CONFIGURE_BOOT_CONFIG}" == "true" && "${DRY_RUN}" != "true" ]]; then
         if ! grep -q "^hdmi_drive=2" "${BOOT_CONFIG}"; then
             echo "hdmi_drive=2" >> "${BOOT_CONFIG}"
         fi
+
+        # Suppress firmware rainbow splash screen
+        if ! grep -q "^disable_splash=1" "${BOOT_CONFIG}"; then
+            echo "disable_splash=1" >> "${BOOT_CONFIG}"
+        fi
     fi
 fi
 
@@ -536,6 +541,12 @@ if [[ "${SUPPRESS_FB_CURSOR}" == "true" && "${DRY_RUN}" != "true" ]]; then
             log_info "Disabling blinking console cursor on framebuffer..."
             sed -i '$ s/$/ consoleblank=0 vt.global_cursor_default=0/' "${BOOT_CMDLINE}"
         fi
+        # Suppress boot text and kernel logs so transitions stay pitch black
+        for opt in "quiet" "loglevel=3" "logo.nologo"; do
+            if ! grep -q "${opt}" "${BOOT_CMDLINE}"; then
+                sed -i "$ s/$/ ${opt}/" "${BOOT_CMDLINE}"
+            fi
+        done
     fi
 fi
 
@@ -732,6 +743,10 @@ EOF
 \\s \\r (\\l)
 
 EOF
+
+    # Mask getty login prompt on tty1 so HDMI output stays pitch black between graphical scenes
+    systemctl disable --now getty@tty1.service 2>/dev/null || true
+    systemctl mask getty@tty1.service 2>/dev/null || true
 
     systemctl daemon-reload
     log_info "Enabling KaraokeZero services for auto-start on boot..."

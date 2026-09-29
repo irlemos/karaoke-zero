@@ -9,7 +9,7 @@ import signal
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, mock_open
 
 from display_manager import DisplayManager
 from network_watcher import NetworkWatcher
@@ -420,6 +420,35 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
         # Only returns path when explicitly passed and existing
         custom_video = self.daemon._resolve_background_video("/opt/custom.mp4")
         self.assertEqual(custom_video, "/opt/custom.mp4")
+
+    @patch("builtins.open", new_callable=mock_open)
+    def test_clear_console(self, mock_file):
+        self.daemon.clear_console("/dev/tty1")
+        mock_file.assert_called_once_with("/dev/tty1", "w", encoding="utf-8")
+        handle = mock_file()
+        handle.write.assert_called_once_with("\033[2J\033[3J\033[H\033[?25l\033[30;40m")
+
+    @patch.object(NetworkWatcher, "update", return_value=(False, "http://192.168.1.100:5555"))
+    @patch.object(DisplayManager, "is_running", return_value=False)
+    @patch.object(OrchestratorDaemon, "transition_to_playing")
+    @patch.object(OrchestratorDaemon, "transition_to_idle")
+    @patch.object(PiKaraokeClient, "notify_end_song", return_value=True)
+    def test_song_completion_direct_to_next_song(self, mock_notify_end, mock_idle, mock_play, mock_running, mock_net):
+        self.daemon.state = OrchestratorDaemon.STATE_PLAYING
+        self.daemon.active_song_id = "/stream/song1.mp4"
+        self.daemon.playback_start_time = 0
+
+        with patch.object(self.daemon.client, "get_now_playing") as mock_np:
+            mock_np.return_value = {
+                "now_playing": "Queen - Bohemian Rhapsody",
+                "now_playing_url": "/stream/song2.mp4",
+                "is_paused": False
+            }
+            self.daemon.step()
+
+        mock_notify_end.assert_called_once_with(reason="complete")
+        mock_play.assert_called_once_with("Queen - Bohemian Rhapsody", "/stream/song2.mp4")
+        mock_idle.assert_not_called()
 
 
 if __name__ == "__main__":
