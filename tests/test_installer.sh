@@ -130,8 +130,57 @@ test_early_service_halt() {
     grep -q 'pkill -9 -f "orchestrator.py"' "${INSTALLER}" || return 1
 }
 
+# Test 10: Updater Bash Syntax & Help Flag
+test_updater_basics() {
+    local updater="${PROJECT_ROOT}/update.sh"
+    [[ -x "${updater}" ]] || return 1
+    bash -n "${updater}" || return 1
+    bash "${updater}" --help | grep -q "KaraokeZero Fast Lightweight Updater" || return 1
+}
+
+# Test 11: Updater Pre-requisite Validation (Fails if not installed)
+test_updater_validation_missing_install() {
+    local updater="${PROJECT_ROOT}/update.sh"
+    local out
+    # 1. Non-existent directory must fail with exit code 1
+    if out=$(bash "${updater}" --dry-run --target-dir "/tmp/nonexistent_kz_test_$$" 2>&1); then
+        return 1
+    fi
+    echo "${out}" | grep -q "KaraokeZero installation not found" || return 1
+    echo "${out}" | grep -q "install.sh" || return 1
+
+    # 2. Empty directory must fail with exit code 1
+    local empty_dir
+    empty_dir=$(mktemp -d /tmp/kz_empty_test.XXXXXX)
+    local empty_res=0
+    if out=$(bash "${updater}" --dry-run --target-dir "${empty_dir}" 2>&1); then
+        empty_res=1
+    fi
+    rm -rf "${empty_dir}"
+    [[ ${empty_res} -eq 0 ]] || return 1
+    echo "${out}" | grep -q "contains no valid KaraokeZero installation" || return 1
+}
+
+# Test 12: Updater Dry-Run Success on Existing Installation
+test_updater_dry_run_success() {
+    local updater="${PROJECT_ROOT}/update.sh"
+    local test_dir
+    test_dir=$(mktemp -d /tmp/kz_installed_test.XXXXXX)
+    mkdir -p "${test_dir}/admin_panel" "${test_dir}/orchestrator"
+
+    local out
+    local res=0
+    if ! out=$(bash "${updater}" --dry-run --target-dir "${test_dir}" 2>&1); then
+        res=1
+    fi
+    rm -rf "${test_dir}"
+    [[ ${res} -eq 0 ]] || return 1
+    echo "${out}" | grep -q "Existing installation verified successfully" || return 1
+    echo "${out}" | grep -q "KaraokeZero Update Complete" || return 1
+}
+
 echo "==================================================================="
-echo "Running KaraokeZero Installer Test Suite"
+echo "Running KaraokeZero Installer & Updater Test Suite"
 echo "==================================================================="
 
 run_test "Bash syntax check" test_syntax
@@ -143,6 +192,9 @@ run_test "Interactive internal SD card input simulation" test_interactive_sd_car
 run_test "Clean single log file generation" test_log_generation_and_freshness
 run_test "Reinstallation & legacy cleanup validation" test_reinstall_cleanup_logic
 run_test "Early service and player halt validation" test_early_service_halt
+run_test "Updater syntax & CLI options" test_updater_basics
+run_test "Updater prior-installation requirement check" test_updater_validation_missing_install
+run_test "Updater dry-run execution on installed system" test_updater_dry_run_success
 
 echo "==================================================================="
 if [[ "${FAILED}" -eq 0 ]]; then
