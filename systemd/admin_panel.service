@@ -14,9 +14,10 @@ Environment=PORT=8888
 Environment=HOST=0.0.0.0
 Environment=PYTHONUNBUFFERED=1
 
-# Resource management & Low footprint constraints
-CPUQuota=25%
-MemoryMax=64M
+# Process priority & Resource management
+# Nice=10 allows yt-dlp & ffmpeg to consume 100% of available CPU during standby/idle,
+# while yielding CPU priority immediately to real-time MPV audio/video during active playback.
+Nice=10
 
 [Install]
 WantedBy=multi-user.target
