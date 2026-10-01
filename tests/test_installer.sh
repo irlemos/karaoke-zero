@@ -179,6 +179,24 @@ test_updater_dry_run_success() {
     echo "${out}" | grep -q "KaraokeZero Update Complete" || return 1
 }
 
+# Test 13: Storage Config Persistence Dry-Run
+test_storage_env_persistence() {
+    local out
+    out=$(bash "${INSTALLER}" --dry-run --config "${CONFIG_EXAMPLE}")
+    echo "${out}" | grep -q "Would save persistent storage configuration to /etc/karaokezero/storage.env" || return 1
+}
+
+# Test 14: Orchestrator Service Decoupling (No RequiresMountsFor)
+test_orchestrator_service_decoupling() {
+    # orchestrator.service must NOT have RequiresMountsFor so it starts and displays the warning screen when external HD is absent
+    if grep -q "RequiresMountsFor" "${PROJECT_ROOT}/systemd/orchestrator.service"; then
+        echo "orchestrator.service must not block on RequiresMountsFor"
+        return 1
+    fi
+    # Must start After=local-fs.target
+    grep -q "After=local-fs.target" "${PROJECT_ROOT}/systemd/orchestrator.service" || return 1
+}
+
 echo "==================================================================="
 echo "Running KaraokeZero Installer & Updater Test Suite"
 echo "==================================================================="
@@ -195,6 +213,8 @@ run_test "Early service and player halt validation" test_early_service_halt
 run_test "Updater syntax & CLI options" test_updater_basics
 run_test "Updater prior-installation requirement check" test_updater_validation_missing_install
 run_test "Updater dry-run execution on installed system" test_updater_dry_run_success
+run_test "Storage config persistence validation" test_storage_env_persistence
+run_test "Orchestrator service decoupling validation" test_orchestrator_service_decoupling
 
 echo "==================================================================="
 if [[ "${FAILED}" -eq 0 ]]; then

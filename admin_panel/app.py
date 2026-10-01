@@ -25,12 +25,22 @@ from typing import Any, Dict, List, Optional
 
 from flask import Flask, jsonify, render_template, request
 
-# Try importing psutil for memory statistics
 try:
     import psutil
     HAS_PSUTIL = True
 except ImportError:
     HAS_PSUTIL = False
+
+# Add orchestrator to sys.path if not present for storage validation
+orchestrator_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
+if orchestrator_dir not in sys.path:
+    sys.path.insert(0, orchestrator_dir)
+
+try:
+    from storage_validator import StorageValidator
+    _storage_validator = StorageValidator()
+except ImportError:
+    _storage_validator = None
 
 # Configure logging
 logging.basicConfig(
@@ -81,7 +91,7 @@ def get_pikaraoke_config_path() -> str:
 
 
 def get_songs_storage_dir() -> str:
-    """Resolves directory path for downloaded karaoke media."""
+    """Resolves directory path for downloaded karaoke media with MicroSD protection."""
     candidates = [
         "/mnt/external_hd/karaoke/songs",
         "/var/lib/karaokezero/songs",
@@ -90,13 +100,26 @@ def get_songs_storage_dir() -> str:
     for path in candidates:
         if os.path.isdir(path):
             return path
+
+    # If external storage was configured, verify it is actually mounted before creating any directory
     primary = "/mnt/external_hd/karaoke/songs"
+    if _storage_validator:
+        cfg = _storage_validator.detect_storage_configuration()
+        if cfg.is_external:
+            is_mounted, _, _, _ = _storage_validator.is_mount_active(cfg.mount_point)
+            if not is_mounted:
+                logger.warning("External storage [%s] not mounted. Refusing to create directories on rootfs.", cfg.mount_point)
+                return primary
+
     try:
         os.makedirs(primary, exist_ok=True)
         return primary
     except Exception:
         fallback = os.path.expanduser("~/songs")
-        os.makedirs(fallback, exist_ok=True)
+        try:
+            os.makedirs(fallback, exist_ok=True)
+        except Exception:
+            pass
         return fallback
 
 
@@ -278,6 +301,17 @@ class SongDownloadManager:
         task_id = task["id"]
         url = task["url"]
         quality = task.get("quality", "480")
+
+        # Verify storage health before initiating heavy download
+        if _storage_validator:
+            val_res = _storage_validator.validate_storage()
+            if not val_res.valid:
+                with self.lock:
+                    task["status"] = "error"
+                    task["error"] = f"Storage unavailable: {val_res.reason}"
+                logger.error("Aborting download: %s", val_res.reason)
+                return
+
         songs_dir = get_songs_storage_dir()
 
         with self.lock:

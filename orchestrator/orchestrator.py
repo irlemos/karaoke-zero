@@ -11,6 +11,7 @@ import argparse
 import logging
 import os
 import signal
+import subprocess
 import sys
 import time
 from typing import Optional
@@ -19,6 +20,7 @@ from display_manager import DisplayManager
 from network_watcher import NetworkWatcher
 from pikaraoke_client import PiKaraokeClient
 from screen_generator import ScreenGenerator
+from storage_validator import StorageValidator, StorageValidationResult
 
 
 logging.basicConfig(
@@ -37,6 +39,7 @@ class OrchestratorDaemon:
     STATE_BOOT = "BOOT"
     STATE_IDLE = "IDLE"
     STATE_PLAYING = "PLAYING"
+    STATE_STORAGE_ERROR = "STORAGE_ERROR"
     STATE_SHUTDOWN = "SHUTDOWN"
 
     def __init__(
@@ -73,7 +76,11 @@ class OrchestratorDaemon:
 
         # Graphical idle details screen generator and output path
         self.idle_screen_path = os.environ.get("IDLE_SCREEN_PATH", "/tmp/karaoke_idle_screen.png")
+        self.storage_error_screen_path = os.environ.get("STORAGE_ERROR_SCREEN_PATH", "/tmp/karaoke_storage_error.png")
         self.screen_generator = ScreenGenerator(output_path=self.idle_screen_path)
+
+        # Storage validator subsystem
+        self.storage_validator = StorageValidator()
 
         # Background video resolution
         self.bg_video = self._resolve_background_video(bg_video_path)
@@ -271,6 +278,12 @@ class OrchestratorDaemon:
 
     def step(self) -> None:
         """Single tick of the orchestrator state machine."""
+        # 0. Storage Error state: keep emergency warning screen active and halt processing
+        if self.state == self.STATE_STORAGE_ERROR:
+            if not self.display.is_running():
+                self.display.start_idle(media_path=self.storage_error_screen_path)
+            return
+
         # 1. Check network IP and update display if migrated
         ip_changed, current_url = self.network.update()
         if ip_changed and self.state == self.STATE_IDLE:
@@ -393,6 +406,131 @@ class OrchestratorDaemon:
         self.clear_console()
         return False
 
+    def validate_storage_on_boot(self, max_wait_seconds: float = 6.0) -> StorageValidationResult:
+        """
+        Validates external storage readiness during early boot.
+        Displays graphical boot splash while waiting for USB block devices to enumerate.
+        If storage fails, returns StorageValidationResult with valid=False.
+        """
+        config = self.storage_validator.detect_storage_configuration()
+        if not config.is_external:
+            logger.info("Internal MicroSD storage mode active. Bypassing external drive checks.")
+            return StorageValidationResult(
+                valid=True,
+                reason="Internal storage mode active.",
+                mount_point=config.mount_point,
+                is_external_configured=False
+            )
+
+        logger.info("External storage configuration detected (%s -> %s). Verifying drive...",
+                    config.storage_device or "USB", config.mount_point)
+
+        # Display initial boot splash early
+        boot_screen = "/tmp/karaoke_boot_screen.png"
+        try:
+            if self.screen_generator.generate_boot_screen(
+                output_path=boot_screen,
+                status_text="Verifying external storage drive..."
+            ):
+                self.display.start_boot_screen(boot_screen)
+        except Exception as e:
+            logger.debug("Storage boot screen notification: %s", e)
+
+        start_time = time.time()
+        last_result = None
+
+        while self.running and (time.time() - start_time < max_wait_seconds):
+            last_result = self.storage_validator.validate_storage(mount_point=config.mount_point)
+            if last_result.valid:
+                logger.info("Storage validation passed: %s is mounted and healthy.", config.mount_point)
+                return last_result
+            time.sleep(1.0)
+
+        if last_result is None:
+            last_result = self.storage_validator.validate_storage(mount_point=config.mount_point)
+        return last_result
+
+    def _ensure_services_stopped_for_storage_error(self) -> None:
+        """Stops PiKaraoke and Admin Panel to guarantee zero writes to rootfs."""
+        try:
+            subprocess.run(
+                ["systemctl", "stop", "pikaraoke.service", "admin_panel.service"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5
+            )
+        except Exception:
+            pass
+
+    def _restart_services_after_storage_recovery(self) -> None:
+        """Restarts PiKaraoke and Admin Panel once storage is reconnected and healthy."""
+        try:
+            subprocess.run(
+                ["systemctl", "restart", "admin_panel.service", "pikaraoke.service"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10
+            )
+        except Exception:
+            pass
+
+    def halt_boot_for_storage(self, initial_result: StorageValidationResult) -> None:
+        """
+        Halts appliance boot when external storage validation fails.
+        Renders and displays the warning screen on HDMI via MPV DRM/KMS.
+        Enters a frozen loop without modifying any system files or SD card paths,
+        allowing the user to resolve the issue (reconnecting drive or power cycling).
+        If the drive is reconnected and healthy, unfreezes and resumes boot.
+        """
+        self.state = self.STATE_STORAGE_ERROR
+        val_result = initial_result
+
+        # Stop background services so they do not attempt disk access on rootfs
+        self._ensure_services_stopped_for_storage_error()
+
+        # Stop boot splash if running
+        self.display.stop(timeout=1.0)
+        self.clear_console()
+
+        # Render and display graphical storage error warning screen
+        self.screen_generator.generate_storage_error_screen(
+            output_path=self.storage_error_screen_path,
+            mount_point=val_result.mount_point,
+            error_reason=val_result.reason,
+            error_code=val_result.error_code or "STORAGE_FAILED"
+        )
+        self.display.start_idle(media_path=self.storage_error_screen_path)
+        self.clear_console()
+
+        logger.critical(
+            "====================================================================\n"
+            "APPLIANCE BOOT HALTED: STORAGE DISK NOT LOADED\n"
+            "Target Mount: %s\n"
+            "Error State:  %s\n"
+            "Reason:       %s\n"
+            "Safe Mode:    Zero files or system settings have been modified.\n"
+            "Action:       Reconnect external HD or reinstall if data was lost.\n"
+            "====================================================================",
+            val_result.mount_point, val_result.error_code, val_result.reason
+        )
+
+        # Safe frozen loop: polls for drive reconnection every 3 seconds
+        while self.running and self.state == self.STATE_STORAGE_ERROR:
+            time.sleep(3.0)
+
+            # Check if external storage has been reconnected and mounted
+            recovery_result = self.storage_validator.validate_storage(mount_point=val_result.mount_point)
+            if recovery_result.valid:
+                logger.info(
+                    "External storage [%s] restored and healthy! Unfreezing boot...",
+                    recovery_result.mount_point
+                )
+                self.display.stop(timeout=1.0)
+                self.clear_console()
+                self._restart_services_after_storage_recovery()
+                self.state = self.STATE_BOOT
+                break
+
     def run(self) -> None:
         """Runs the main orchestrator daemon loop."""
         self.setup_signals()
@@ -401,6 +539,15 @@ class OrchestratorDaemon:
 
         # Clear local virtual console immediately to eliminate boot logs and cursor
         self.clear_console()
+
+        # Storage validation and boot halt guard
+        storage_result = self.validate_storage_on_boot(max_wait_seconds=6.0)
+        if not storage_result.valid:
+            logger.critical("External storage validation FAILED on boot. Reason: %s", storage_result.reason)
+            self.halt_boot_for_storage(storage_result)
+            if not self.running:
+                self.cleanup()
+                return
 
         # Wait for backend and display boot progress on /dev/tty1
         self.wait_for_backend()

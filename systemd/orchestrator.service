@@ -1,8 +1,7 @@
 [Unit]
 Description=KaraokeZero Display & Queue Orchestrator Daemon
-RequiresMountsFor=/mnt/external_hd/karaoke
-After=local-fs.target network.target NetworkManager.service pikaraoke.service
-Wants=pikaraoke.service
+After=local-fs.target network.target NetworkManager.service
+Wants=network.target
 
 [Service]
 Type=simple

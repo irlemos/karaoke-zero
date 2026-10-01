@@ -122,6 +122,24 @@ class TestScreenGenerator(unittest.TestCase):
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
 
+    def test_generate_storage_error_screen(self):
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+            temp_path = tf.name
+        try:
+            sg = ScreenGenerator(output_path=temp_path)
+            res = sg.generate_storage_error_screen(
+                output_path=temp_path,
+                mount_point="/mnt/external_hd/karaoke",
+                error_reason="Configured storage disk is not connected or failed to mount at /mnt/external_hd/karaoke.",
+                error_code="DEVICE_NOT_FOUND"
+            )
+            self.assertTrue(res)
+            self.assertTrue(os.path.isfile(temp_path))
+            self.assertGreater(os.path.getsize(temp_path), 5000)
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
 
 class TestDisplayManager(unittest.TestCase):
 
@@ -449,6 +467,52 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
         mock_notify_end.assert_called_once_with(reason="complete")
         mock_play.assert_called_once_with("Queen - Bohemian Rhapsody", "/stream/song2.mp4")
         mock_idle.assert_not_called()
+
+    @patch.object(ScreenGenerator, "generate_storage_error_screen", return_value=True)
+    @patch.object(DisplayManager, "start_idle", return_value=True)
+    @patch.object(DisplayManager, "stop")
+    @patch.object(OrchestratorDaemon, "clear_console")
+    @patch.object(OrchestratorDaemon, "_ensure_services_stopped_for_storage_error")
+    def test_halt_boot_for_storage(self, mock_stop_svc, mock_clear, mock_stop_display, mock_start_idle, mock_gen_screen):
+        from storage_validator import StorageValidationResult
+        initial_res = StorageValidationResult(
+            valid=False,
+            error_code="DEVICE_NOT_FOUND",
+            reason="Configured storage disk is not connected.",
+            mount_point="/mnt/external_hd/karaoke",
+            is_external_configured=True
+        )
+
+        recovered_res = StorageValidationResult(
+            valid=True,
+            reason="Storage recovered",
+            mount_point="/mnt/external_hd/karaoke",
+            is_external_configured=True
+        )
+
+        self.daemon.running = True
+        with patch.object(self.daemon.storage_validator, "validate_storage", return_value=recovered_res):
+            with patch.object(self.daemon, "_restart_services_after_storage_recovery") as mock_restart_svc:
+                with patch("time.sleep"):
+                    self.daemon.halt_boot_for_storage(initial_res)
+                    mock_stop_svc.assert_called_once()
+                    mock_gen_screen.assert_called_once_with(
+                        output_path=self.daemon.storage_error_screen_path,
+                        mount_point="/mnt/external_hd/karaoke",
+                        error_reason="Configured storage disk is not connected.",
+                        error_code="DEVICE_NOT_FOUND"
+                    )
+                    mock_start_idle.assert_called_once_with(media_path=self.daemon.storage_error_screen_path)
+                    mock_restart_svc.assert_called_once()
+                    self.assertEqual(self.daemon.state, OrchestratorDaemon.STATE_BOOT)
+
+    @patch.object(DisplayManager, "is_running", return_value=True)
+    @patch.object(PiKaraokeClient, "get_now_playing")
+    def test_step_in_storage_error_state_does_nothing(self, mock_np, mock_running):
+        self.daemon.state = OrchestratorDaemon.STATE_STORAGE_ERROR
+        self.daemon.step()
+        mock_np.assert_not_called()
+        self.assertEqual(self.daemon.state, OrchestratorDaemon.STATE_STORAGE_ERROR)
 
 
 if __name__ == "__main__":

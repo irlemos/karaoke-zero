@@ -37,6 +37,15 @@ class ScreenGenerator:
     CARD_BG = (22, 29, 48)
     CARD_BORDER = (45, 58, 92)
 
+    # Storage alert colors
+    ALERT_RED = (239, 68, 68)
+    ALERT_RED_DARK = (185, 28, 28)
+    ALERT_RED_BG = (35, 14, 20)
+    ALERT_RED_BORDER = (120, 30, 40)
+    ALERT_AMBER = (245, 158, 11)
+    ALERT_AMBER_BG = (35, 28, 14)
+    ALERT_AMBER_BORDER = (120, 85, 25)
+
     def __init__(
         self,
         output_path: str = "/tmp/karaoke_idle_screen.png",
@@ -277,3 +286,180 @@ class ScreenGenerator:
         except Exception as e:
             logger.exception("Failed to render graphical boot splash screen: %s", e)
             return False
+
+    def generate_storage_error_screen(
+        self,
+        output_path: Optional[str] = None,
+        mount_point: str = "/mnt/external_hd/karaoke",
+        error_reason: str = "Configured storage disk is not connected or failed to mount.",
+        error_code: str = "DEVICE_NOT_FOUND"
+    ) -> bool:
+        """
+        Renders a high-contrast, premium emergency warning screen when external
+        storage fails to load at boot. Halts startup to protect the MicroSD card.
+        """
+        target_path = output_path or self.output_path
+
+        if not PIL_AVAILABLE:
+            logger.error("PIL/Pillow library not available. Cannot render storage error screen.")
+            return False
+
+        try:
+            # Dark slate-to-crimson gradient
+            bg_top_alert = (15, 12, 22)
+            bg_bottom_alert = (24, 16, 28)
+            img = Image.new("RGB", (self.width, self.height), bg_top_alert)
+            draw = ImageDraw.Draw(img)
+
+            for y in range(self.height):
+                factor = y / self.height
+                r = int(bg_top_alert[0] + factor * (bg_bottom_alert[0] - bg_top_alert[0]))
+                g = int(bg_top_alert[1] + factor * (bg_bottom_alert[1] - bg_top_alert[1]))
+                b = int(bg_top_alert[2] + factor * (bg_bottom_alert[2] - bg_top_alert[2]))
+                draw.line([(0, y), (self.width, y)], fill=(r, g, b))
+
+            # Resolve typography
+            font_brand = self._resolve_font(52, bold=True)
+            font_sub = self._resolve_font(20, bold=True)
+            font_badge = self._resolve_font(18, bold=True)
+            font_headline = self._resolve_font(30, bold=True)
+            font_guarantee = self._resolve_font(20, bold=False)
+            font_section = self._resolve_font(24, bold=True)
+            font_metric = self._resolve_font(20, bold=True)
+            font_body_bold = self._resolve_font(21, bold=True)
+            font_body = self._resolve_font(19, bold=False)
+            font_footer = self._resolve_font(19, bold=True)
+            font_footer_sub = self._resolve_font(18, bold=False)
+
+            # 1. Header banner
+            draw.rectangle([0, 0, self.width, 8], fill=self.ALERT_RED)
+            draw.text((self.width // 2, 55), "K A R A O K E - Z E R O", fill=self.TEXT_WHITE, font=font_brand, anchor="mm")
+            draw.text((self.width // 2, 98), "SYSTEM STORAGE INTEGRITY ALERT  •  APPLIANCE BOOT PAUSED", fill=self.ALERT_RED, font=font_sub, anchor="mm")
+
+            header_line_w = 520
+            draw.line(
+                [(self.width // 2 - header_line_w // 2, 118), (self.width // 2 + header_line_w // 2, 118)],
+                fill=self.ALERT_RED_BORDER,
+                width=2
+            )
+
+            # 2. Main Hero Alert Banner (y = 138 to 328)
+            banner_x1, banner_y1, banner_x2, banner_y2 = 100, 138, 1820, 328
+            draw.rounded_rectangle(
+                [banner_x1, banner_y1, banner_x2, banner_y2],
+                radius=20,
+                fill=self.ALERT_RED_BG,
+                outline=self.ALERT_RED,
+                width=3
+            )
+
+            # Red Pill Badge
+            pill_x1, pill_y1, pill_x2, pill_y2 = 140, 158, 520, 198
+            draw.rounded_rectangle([pill_x1, pill_y1, pill_x2, pill_y2], radius=10, fill=self.ALERT_RED_DARK)
+            draw.text(((pill_x1 + pill_x2) // 2, (pill_y1 + pill_y2) // 2), "[ ! ] STORAGE LOAD ERROR", fill=self.TEXT_WHITE, font=font_badge, anchor="mm")
+
+            # Main Error Headline
+            draw.text(
+                (140, 230),
+                "Could not load configured storage disk for system data and media library.",
+                fill=self.TEXT_WHITE,
+                font=font_headline,
+                anchor="lm"
+            )
+
+            # Protection Guarantee Subtitle
+            draw.text(
+                (140, 275),
+                "Appliance boot halted. Safe mode active — zero system configurations or files were modified.",
+                fill=(252, 165, 165),
+                font=font_guarantee,
+                anchor="lm"
+            )
+
+            # 3. Two Main Information Cards (y = 348 to 930)
+            # --- LEFT CARD: Diagnostic Details ---
+            left_x1, left_y1, left_x2, left_y2 = 100, 348, 930, 930
+            draw.rounded_rectangle([left_x1, left_y1, left_x2, left_y2], radius=20, fill=self.CARD_BG, outline=self.CARD_BORDER, width=2)
+
+            draw.text((140, 385), "STORAGE DIAGNOSTIC", fill=self.ACCENT_CYAN, font=font_section, anchor="lm")
+
+            # Metric: Target Mount Point
+            draw.rounded_rectangle([140, 420, 890, 470], radius=10, fill=(28, 36, 60), outline=(50, 65, 105), width=1)
+            draw.text((160, 445), f"Target Mount:  {mount_point}", fill=self.ACCENT_YELLOW, font=font_metric, anchor="lm")
+
+            # Metric: Error Code
+            draw.rounded_rectangle([140, 485, 890, 535], radius=10, fill=(38, 20, 26), outline=(90, 35, 45), width=1)
+            draw.text((160, 510), f"Error State:   {error_code}", fill=self.ALERT_RED, font=font_metric, anchor="lm")
+
+            draw.line([(140, 555), (890, 555)], fill=self.CARD_BORDER, width=1)
+
+            bullet_y = 585
+            bullets = [
+                "• Appliance was installed with an external HD/SSD bound for data & songs.",
+                "• At boot, the storage disk could not be loaded, was missing, or unreadable.",
+                "• MicroSD protection: Background services (PiKaraoke, Admin Panel) halted.",
+                "• Zero system files or fallback databases created on internal storage."
+            ]
+            for bullet in bullets:
+                draw.text((140, bullet_y), bullet, fill=self.TEXT_MUTED, font=font_body, anchor="lm")
+                bullet_y += 42
+
+            # Detail snippet box
+            draw.rounded_rectangle([140, 765, 890, 895], radius=12, fill=(16, 20, 32), outline=(40, 50, 75), width=1)
+            draw.text((160, 788), "Diagnostic Detail:", fill=self.TEXT_WHITE, font=font_body_bold, anchor="lm")
+            import textwrap
+            wrapped_lines = textwrap.wrap(error_reason, width=52)[:3]
+            detail_y = 820
+            for wline in wrapped_lines:
+                draw.text((160, detail_y), wline, fill=(200, 210, 230), font=font_body, anchor="lm")
+                detail_y += 30
+
+            # --- RIGHT CARD: Action Required ---
+            right_x1, right_y1, right_x2, right_y2 = 970, 348, 1820, 930
+            draw.rounded_rectangle([right_x1, right_y1, right_x2, right_y2], radius=20, fill=self.CARD_BG, outline=self.ALERT_AMBER_BORDER, width=2)
+
+            draw.text((1010, 385), "ACTION REQUIRED TO RESOLVE", fill=self.ALERT_AMBER, font=font_section, anchor="lm")
+
+            # Step 1
+            draw.text((1010, 435), "1. Check Physical Connection & Reconnect", fill=self.TEXT_WHITE, font=font_body_bold, anchor="lm")
+            draw.text((1010, 468), "Check the USB cable and reconnect the drive to the Raspberry Pi.", fill=self.TEXT_MUTED, font=font_body, anchor="lm")
+            draw.text((1010, 498), "Verify that the drive is powered on (use a powered USB hub if needed).", fill=self.TEXT_MUTED, font=font_body, anchor="lm")
+
+            # Step 2
+            draw.text((1010, 555), "2. Automatic Detection or Power Cycle", fill=self.TEXT_WHITE, font=font_body_bold, anchor="lm")
+            draw.text((1010, 588), "The system checks for disk reconnection automatically every 3 seconds.", fill=self.TEXT_MUTED, font=font_body, anchor="lm")
+            draw.text((1010, 618), "Once detected, boot will resume. You may also power cycle the appliance.", fill=self.TEXT_MUTED, font=font_body, anchor="lm")
+
+            # Step 3 (Crucial user requirement: if data was lost, reinstall)
+            step3_x1, step3_y1, step3_x2, step3_y2 = 1010, 670, 1780, 895
+            draw.rounded_rectangle(
+                [step3_x1, step3_y1, step3_x2, step3_y2],
+                radius=14,
+                fill=self.ALERT_AMBER_BG,
+                outline=self.ALERT_AMBER,
+                width=2
+            )
+            draw.text((1035, 705), "3. If Drive or Data Was Lost: Reinstall Required", fill=self.ALERT_AMBER, font=font_body_bold, anchor="lm")
+            draw.text((1035, 745), "If the drive has suffered permanent hardware failure, was reformatted,", fill=(253, 230, 138), font=font_body, anchor="lm")
+            draw.text((1035, 775), "or data was lost, a new installation of KaraokeZero must be performed", fill=(253, 230, 138), font=font_body, anchor="lm")
+            draw.text((1035, 805), "to configure, link, and format the storage drive.", fill=(253, 230, 138), font=font_body, anchor="lm")
+            draw.text((1035, 855), "Execute:  sudo bash install.sh", fill=self.ALERT_AMBER, font=font_metric, anchor="lm")
+
+            # 4. Footer status bar (y = 955 to 1080)
+            footer_y = 955
+            draw.rectangle([0, footer_y, self.width, self.height], fill=(10, 12, 18))
+            draw.line([(0, footer_y), (self.width, footer_y)], fill=self.ALERT_RED_BORDER, width=1)
+
+            # Blinking / solid Red Indicator Dot
+            dot_x, dot_y = 120, footer_y + 40
+            draw.ellipse([dot_x - 8, dot_y - 8, dot_x + 8, dot_y + 8], fill=self.ALERT_RED)
+            draw.text((dot_x + 22, dot_y), "BOOT HALTED  |  AWAITING DRIVE RECONNECTION OR REBOOT", fill=self.ALERT_RED, font=font_footer, anchor="lm")
+            draw.text((self.width - 120, dot_y), "Safe Mode Active  •  Zero Flash Write Mode  •  DRM/KMS Output", fill=self.TEXT_MUTED, font=font_footer_sub, anchor="rm")
+
+            img.save(target_path, "PNG")
+            logger.info("Generated graphical storage error warning screen -> %s", target_path)
+            return True
+        except Exception as e:
+            logger.exception("Failed to render graphical storage error screen: %s", e)
+            return False
+

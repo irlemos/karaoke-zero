@@ -345,6 +345,25 @@ else
     fi
 fi
 
+# Persist storage configuration on rootfs for early boot validation
+if [[ "${DRY_RUN}" != "true" ]]; then
+    mkdir -p /etc/karaokezero
+    cat << EOF > /etc/karaokezero/storage.env
+# KaraokeZero Persistent Storage Configuration
+STORAGE_TYPE="${STORAGE_TYPE}"
+STORAGE_DEVICE="${STORAGE_DEVICE:-}"
+DEVICE_UUID="${DEVICE_UUID:-}"
+MOUNT_POINT="${MOUNT_POINT:-/mnt/external_hd/karaoke}"
+SONGS_DIR="${SONGS_DIR}"
+DATA_DIR="${DATA_DIR}"
+MEDIA_DIR="${MEDIA_DIR}"
+EOF
+    chmod 644 /etc/karaokezero/storage.env
+    log_success "Saved persistent storage configuration to /etc/karaokezero/storage.env."
+else
+    log_info "[DRY-RUN] Would save persistent storage configuration to /etc/karaokezero/storage.env"
+fi
+
 # ------------------------------------------------------------------------------
 # 6. System Package Installation
 # ------------------------------------------------------------------------------
@@ -677,9 +696,8 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     cat << EOF > /etc/systemd/system/orchestrator.service
 [Unit]
 Description=KaraokeZero Display & Queue Orchestrator Daemon
-RequiresMountsFor=${MOUNT_POINT}
-After=local-fs.target network.target NetworkManager.service pikaraoke.service
-Wants=pikaraoke.service
+After=local-fs.target network.target NetworkManager.service
+Wants=network.target
 
 [Service]
 Type=simple
