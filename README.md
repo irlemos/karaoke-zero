@@ -74,15 +74,16 @@ karaoke-zero/
 ├── LICENSE                     # AGPL-3.0 License
 │
 ├── karaoke-downloader          # Standalone Linux desktop downloader launcher
-├── desktop_downloader/         # High-volume PC downloader web app (Zero pip deps)
-│   ├── app.py                  # Standard library HTTP API & static asset server
-│   ├── download_manager.py     # Background download queue & USB storage detector
-│   ├── youtube_search.py       # Innertube search & playlist inspector
-│   ├── test_downloader.py      # Unit test suite
-│   └── static/                 # Rich responsive web UI
-│       ├── index.html          # Web interface layout
-│       ├── style.css           # Modern dark theme stylesheet
-│       └── app.js              # Client-side controller
+├── tools/                      # Desktop utilities and companion tools
+│   └── desktop_downloader/     # High-volume PC downloader web app (Zero pip deps)
+│       ├── app.py              # Standard library HTTP API & static asset server
+│       ├── download_manager.py # Background download queue & USB storage detector
+│       ├── youtube_search.py   # Innertube search & playlist inspector
+│       ├── test_downloader.py  # Unit test suite
+│       └── static/             # Rich responsive web UI
+│           ├── index.html      # Web interface layout
+│           ├── style.css       # Modern dark theme stylesheet
+│           └── app.js          # Client-side controller
 │
 ├── admin_panel/                # System management & administrative web portal
 │   ├── app.py                  # Flask web service, yt-dlp worker, and NetworkManager API
@@ -121,7 +122,7 @@ A Python service that monitors the local PiKaraoke queue (`/api/queue`) and driv
 - **Storage Validation & Boot Halt Safety:** On boot, if KaraokeZero was installed with external storage, the orchestrator verifies that the drive is present, mounted, and healthy. If the drive is missing, disconnected, or unreadable, the orchestrator halts boot, stops background services, and renders a high-contrast emergency warning screen via MPV DRM/KMS. The appliance remains frozen in safe mode without modifying any files until the user reconnects the drive or reboots. If data was lost, a new installation is required.
 - **Process Recycling:** Between songs, the MPV process is terminated and cleanly re-spawned. This completely flushes memory allocations and releases VideoCore IV GPU handles, avoiding memory fragmentation during extended sessions.
 
-### 3. Desktop Song Downloader (`desktop_downloader/`)
+### 3. Desktop Song Downloader (`tools/desktop_downloader/`)
 A standalone, zero-dependency desktop utility that runs on the user's Linux PC to bulk-download hundreds of songs directly to the external USB drive:
 - **Full PC Bandwidth:** Bypasses the Raspberry Pi Zero W single-core CPU and Wi-Fi limits, allowing massive catalog downloads at multi-gigabit speeds.
 - **Visual Web UI with Cover Thumbnails:** Fast YouTube search showing thumbnails, video duration, and artist channels in ~250ms with zero Google API keys.
@@ -208,7 +209,7 @@ python3 -m unittest discover -s admin_panel
 python3 -m unittest discover -s orchestrator
 
 # Run desktop song downloader unit tests
-python3 -m unittest discover -s desktop_downloader -p "test_*.py"
+python3 -m unittest discover -s tools/desktop_downloader -p "test_*.py"
 ```
 
 ---

@@ -119,4 +119,4 @@ echo -e "${CYAN}Press Ctrl+C at any time in this terminal to stop the server.${N
 echo ""
 
 # Launch Python backend (which auto-spawns browser)
-exec python3 "${SCRIPT_DIR}/desktop_downloader/app.py" "$@"
+exec python3 "${SCRIPT_DIR}/tools/desktop_downloader/app.py" "$@"

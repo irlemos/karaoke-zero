@@ -18,11 +18,13 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from unittest.mock import MagicMock, patch
 
-# Ensure repo root and desktop_downloader package are in sys.path
+# Ensure tools directory and repo root are in sys.path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PARENT_DIR = os.path.dirname(SCRIPT_DIR)
-if PARENT_DIR not in sys.path:
-    sys.path.insert(0, PARENT_DIR)
+TOOLS_DIR = os.path.dirname(SCRIPT_DIR)
+REPO_ROOT = os.path.dirname(TOOLS_DIR)
+for p in (SCRIPT_DIR, TOOLS_DIR, REPO_ROOT):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 from desktop_downloader.download_manager import (
     DownloadManager,

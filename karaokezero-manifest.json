@@ -65,6 +65,7 @@
       ]
     },
     "desktop_downloader": {
+      "location": "tools/desktop_downloader",
       "purpose": "Lightweight, zero-pip desktop utility allowing users to batch download high-volume karaoke tracks from YouTube directly on their Linux PC at full speed.",
       "tech_stack": "Python 3 (standard library http.server), yt-dlp, ffmpeg, HTML5, Vanilla CSS, Vanilla JS",
       "logic_flow": [
