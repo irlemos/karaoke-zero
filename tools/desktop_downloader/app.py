@@ -44,16 +44,81 @@ download_mgr = DownloadManager()
 STATIC_DIR = os.path.join(SCRIPT_DIR, "static")
 
 
-def find_available_port(start_port: int = 7777, max_attempts: int = 20) -> int:
-    """Finds an unused TCP port starting from start_port."""
-    for port in range(start_port, start_port + max_attempts):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            try:
-                s.bind(("127.0.0.1", port))
-                return port
-            except OSError:
-                continue
-    return start_port
+DEFAULT_PORT = 7777
+MAX_PORT_ATTEMPTS = 20
+
+
+def is_port_available(port: int, host: str = "127.0.0.1") -> bool:
+    """Checks if a TCP port is available to bind on the specified host."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+def find_available_port(
+    start_port: int = DEFAULT_PORT,
+    max_attempts: int = MAX_PORT_ATTEMPTS,
+    host: str = "127.0.0.1"
+) -> Optional[int]:
+    """
+    Finds the first unused TCP port starting from start_port up to max_attempts.
+    Returns the port number if found, or None if all attempts are occupied.
+    """
+    for offset in range(max_attempts):
+        port = start_port + offset
+        if is_port_available(port, host=host):
+            return port
+    return None
+
+
+def resolve_server_port(
+    requested_port: Optional[int] = None,
+    default_port: int = DEFAULT_PORT,
+    max_attempts: int = MAX_PORT_ATTEMPTS,
+    host: str = "127.0.0.1"
+) -> int:
+    """
+    Validates and resolves the TCP port for the local server:
+    1. If requested_port is provided: verifies if that port is available.
+       If occupied, displays an error requesting an available port and exits.
+    2. If requested_port is None: checks default_port (7777). If in use,
+       scans up to max_attempts consecutive ports. If an open port is found,
+       notifies the user and returns it. If all max_attempts ports are in use,
+       displays an error asking the user to specify a free port via --port and exits.
+    """
+    if requested_port is not None:
+        if not is_port_available(requested_port, host=host):
+            print("\n" + "=" * 65, file=sys.stderr)
+            print(f"[ERROR] Port {requested_port} is already in use by another application.", file=sys.stderr)
+            print("=" * 65, file=sys.stderr)
+            print("Please specify a different, available port using the --port parameter:", file=sys.stderr)
+            print(f"\n    ./karaoke-downloader --port <PORT_NUMBER>\n", file=sys.stderr)
+            print("=" * 65 + "\n", file=sys.stderr)
+            sys.exit(1)
+        return requested_port
+
+    actual_port = find_available_port(start_port=default_port, max_attempts=max_attempts, host=host)
+    if actual_port is None:
+        end_port = default_port + max_attempts - 1
+        print("\n" + "=" * 65, file=sys.stderr)
+        print(f"[ERROR] Port conflict: All {max_attempts} automatic ports ({default_port} - {end_port}) are occupied!", file=sys.stderr)
+        print("=" * 65, file=sys.stderr)
+        print("No available port could be found automatically.", file=sys.stderr)
+        print("Please free up one of these ports or specify an available port using the --port parameter:", file=sys.stderr)
+        print(f"\n    ./karaoke-downloader --port <PORT_NUMBER>\n", file=sys.stderr)
+        print("Example:", file=sys.stderr)
+        print("    ./karaoke-downloader --port 8888", file=sys.stderr)
+        print("=" * 65 + "\n", file=sys.stderr)
+        sys.exit(1)
+
+    if actual_port != default_port:
+        print(f"\n[NOTICE] Default port {default_port} is in use.")
+        print(f"[NOTICE] Automatically switched to available port: {actual_port}\n")
+
+    return actual_port
 
 
 class DownloaderRequestHandler(BaseHTTPRequestHandler):
@@ -322,13 +387,14 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"success": False, "status": "error", "error": f"POST endpoint not found: {path}"})
 
 
-def launch_server(port: int = 7777, open_browser: bool = True, output_dir: Optional[str] = None):
+def launch_server(port: Optional[int] = None, open_browser: bool = True, output_dir: Optional[str] = None):
     """Starts the HTTP server and opens user's browser."""
     if output_dir:
         download_mgr.save_settings({"output_dir": os.path.abspath(os.path.expanduser(output_dir))})
 
-    actual_port = find_available_port(port)
+    actual_port = resolve_server_port(requested_port=port)
     server_address = ("127.0.0.1", actual_port)
+    ThreadingHTTPServer.allow_reuse_address = True
     httpd = ThreadingHTTPServer(server_address, DownloaderRequestHandler)
 
     url = f"http://127.0.0.1:{actual_port}"
@@ -364,7 +430,12 @@ def launch_server(port: int = 7777, open_browser: bool = True, output_dir: Optio
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="KaraokeZero Desktop Downloader Server")
-    parser.add_argument("--port", type=int, default=7777, help="Local HTTP port (default: 7777)")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Local HTTP port (default: 7777, auto-scans up to 20 ports if busy)"
+    )
     parser.add_argument("--no-browser", action="store_true", help="Do not open web browser automatically")
     parser.add_argument("--dir", type=str, default=None, help="Output directory for downloaded songs")
     args = parser.parse_args()

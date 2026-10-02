@@ -39,7 +39,15 @@ from desktop_downloader.youtube_search import (
     search_playlists,
     extract_playlist_info,
 )
-from desktop_downloader.app import DownloaderRequestHandler, download_mgr
+from desktop_downloader.app import (
+    DownloaderRequestHandler,
+    download_mgr,
+    is_port_available,
+    find_available_port,
+    resolve_server_port,
+    DEFAULT_PORT,
+    MAX_PORT_ATTEMPTS,
+)
 
 
 class TestDurationParsing(unittest.TestCase):
@@ -507,6 +515,73 @@ class TestDownloaderHTTPAPI(unittest.TestCase):
         self.assertEqual(data["status"], "ok")
         self.assertEqual(data["enqueued_count"], 2)
         self.assertEqual(data["playlist_title"], "Rock Karaoke Collection")
+
+
+
+class TestPortResolution(unittest.TestCase):
+    def test_is_port_available_free(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", 0))
+        free_port = s.getsockname()[1]
+        s.close()
+        self.assertTrue(is_port_available(free_port))
+
+    def test_is_port_available_busy(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", 0))
+        busy_port = s.getsockname()[1]
+        try:
+            self.assertFalse(is_port_available(busy_port))
+        finally:
+            s.close()
+
+    def test_find_available_port_immediate(self):
+        with patch("desktop_downloader.app.is_port_available", return_value=True):
+            port = find_available_port(start_port=7777, max_attempts=20)
+            self.assertEqual(port, 7777)
+
+    def test_find_available_port_fallback(self):
+        def side_effect(p, host="127.0.0.1"):
+            return p >= 7779
+
+        with patch("desktop_downloader.app.is_port_available", side_effect=side_effect):
+            port = find_available_port(start_port=7777, max_attempts=20)
+            self.assertEqual(port, 7779)
+
+    def test_find_available_port_all_busy_returns_none(self):
+        with patch("desktop_downloader.app.is_port_available", return_value=False):
+            port = find_available_port(start_port=7777, max_attempts=20)
+            self.assertIsNone(port)
+
+    def test_resolve_server_port_default_free(self):
+        with patch("desktop_downloader.app.find_available_port", return_value=7777):
+            actual = resolve_server_port(requested_port=None)
+            self.assertEqual(actual, 7777)
+
+    def test_resolve_server_port_auto_switch_prints_notice(self):
+        with patch("desktop_downloader.app.find_available_port", return_value=7779), \
+             patch("builtins.print") as mock_print:
+            actual = resolve_server_port(requested_port=None)
+            self.assertEqual(actual, 7779)
+            printed_texts = [str(call[0][0]) for call in mock_print.call_args_list if call[0]]
+            self.assertTrue(any("switched to available port: 7779" in t for t in printed_texts))
+
+    def test_resolve_server_port_all_20_busy_exits_with_error(self):
+        with patch("desktop_downloader.app.find_available_port", return_value=None), \
+             self.assertRaises(SystemExit) as cm:
+            resolve_server_port(requested_port=None)
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_resolve_server_port_custom_port_available(self):
+        with patch("desktop_downloader.app.is_port_available", return_value=True):
+            actual = resolve_server_port(requested_port=8080)
+            self.assertEqual(actual, 8080)
+
+    def test_resolve_server_port_custom_port_busy_exits_with_error(self):
+        with patch("desktop_downloader.app.is_port_available", return_value=False), \
+             self.assertRaises(SystemExit) as cm:
+            resolve_server_port(requested_port=8080)
+        self.assertEqual(cm.exception.code, 1)
 
 
 if __name__ == "__main__":
