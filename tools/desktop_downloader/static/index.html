@@ -187,6 +187,12 @@
             </svg>
             <span id="pauseBtnText">Pause</span>
           </button>
+          <button id="retryAllFailedBtn" class="subtle-btn warning-subtle-btn hidden" title="Retry all failed downloads">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            <span id="retryAllFailedText">Retry Failed</span>
+          </button>
           <button id="clearCompletedBtn" class="subtle-btn" title="Clear completed tasks">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="3 6 5 6 21 6"/>
@@ -383,6 +389,50 @@
           <button id="cancelSettingsBtn" class="secondary-btn">Cancel</button>
           <button id="saveSettingsBtn" class="primary-btn">
             <span>Save Configuration</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Details Modal -->
+  <div class="modal-overlay hidden" id="errorModal">
+    <div class="modal-card error-modal-card">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <h3>Download Error Details</h3>
+        </div>
+        <button class="close-modal-btn" id="closeErrorModal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="error-meta-box">
+          <div class="error-song-title" id="errorSongTitle">Song Title</div>
+          <div class="error-summary-badge" id="errorSummaryText">Error Summary</div>
+        </div>
+
+        <label class="settings-label" style="margin-top: 1rem;">yt-dlp Execution Log Output:</label>
+        <pre class="error-log-box" id="errorLogOutput">No details available.</pre>
+
+        <div class="modal-footer" style="margin-top: 1.25rem;">
+          <button id="copyErrorLogBtn" class="secondary-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            <span>Copy Log</span>
+          </button>
+          <button id="closeErrorModalBtn" class="secondary-btn">Close</button>
+          <button id="retryErrorModalBtn" class="primary-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            <span>Retry Download</span>
           </button>
         </div>
       </div>

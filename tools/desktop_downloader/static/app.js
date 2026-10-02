@@ -25,8 +25,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const pauseQueueBtn = document.getElementById('pauseQueueBtn');
   const pauseBtnText = document.getElementById('pauseBtnText');
   const clearCompletedBtn = document.getElementById('clearCompletedBtn');
+  const retryAllFailedBtn = document.getElementById('retryAllFailedBtn');
+  const retryAllFailedText = document.getElementById('retryAllFailedText');
   const toggleQueueBtn = document.getElementById('toggleQueueBtn');
   const queuePanel = document.getElementById('queuePanel');
+
+  // Error Modal Elements
+  const errorModal = document.getElementById('errorModal');
+  const closeErrorModal = document.getElementById('closeErrorModal');
+  const closeErrorModalBtn = document.getElementById('closeErrorModalBtn');
+  const copyErrorLogBtn = document.getElementById('copyErrorLogBtn');
+  const retryErrorModalBtn = document.getElementById('retryErrorModalBtn');
+  const errorSongTitle = document.getElementById('errorSongTitle');
+  const errorSummaryText = document.getElementById('errorSummaryText');
+  const errorLogOutput = document.getElementById('errorLogOutput');
+
+  let activeModalTaskId = null;
+  let currentTasksMap = new Map();
 
   // Nav & Settings Elements
   const qualitySelect = document.getElementById('qualitySelect');
@@ -542,6 +557,41 @@ document.addEventListener('DOMContentLoaded', () => {
         statusDescription = `Failed: ${task.error || 'Download error'}`;
       }
 
+      let actionsHtml = '';
+      if (task.status === 'error') {
+        actionsHtml = `
+          <div class="queue-item-actions">
+            <button class="queue-action-btn queue-details-btn" title="View Error Details" data-id="${task.id}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="16" x2="12" y2="12"/>
+                <line x1="12" y1="8" x2="12.01" y2="8"/>
+              </svg>
+            </button>
+            <button class="queue-action-btn queue-retry-btn" title="Retry Download" data-id="${task.id}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+              </svg>
+            </button>
+            <button class="queue-cancel-btn" title="Remove from Queue" data-id="${task.id}" data-url="${escapeHtml(task.url || '')}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+        `;
+      } else {
+        actionsHtml = `
+          <button class="queue-cancel-btn" title="Remove from Queue" data-id="${task.id}" data-url="${escapeHtml(task.url || '')}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        `;
+      }
+
       itemEl.innerHTML = `
         <div class="queue-item-top">
           <img class="queue-thumb" src="${escapeHtml(task.thumbnail || 'https://i.ytimg.com/vi/default/hqdefault.jpg')}" alt="thumb">
@@ -549,12 +599,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="queue-title" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</div>
             <div class="queue-status-text">${escapeHtml(statusDescription)}</div>
           </div>
-          <button class="queue-cancel-btn" title="Remove from Queue" data-id="${task.id}" data-url="${escapeHtml(task.url || '')}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
+          ${actionsHtml}
         </div>
         <div class="progress-container">
           <div class="progress-bar ${task.status}" style="width: ${percent}%"></div>
@@ -568,12 +613,51 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
     });
 
+    // Toggle Retry Failed button in queue header
+    const errorCount = (data.errors || []).length;
+    if (errorCount > 0) {
+      retryAllFailedBtn.classList.remove('hidden');
+      retryAllFailedText.textContent = `Retry Failed (${errorCount})`;
+    } else {
+      retryAllFailedBtn.classList.add('hidden');
+    }
+
+    // Keep map updated
+    currentTasksMap.clear();
+    tasks.forEach(t => currentTasksMap.set(t.id, t));
+
     // Remove deleted tasks from DOM
     existingElements.forEach(el => el.remove());
   }
 
-  // Delegated event listener for canceling/removing items from queue
+  // Delegated event listener for queue item actions (cancel, retry, details)
   queueList.addEventListener('click', (e) => {
+    // 1. Details button
+    const detailsBtn = e.target.closest('.queue-details-btn');
+    if (detailsBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const taskId = detailsBtn.dataset.id;
+      const task = currentTasksMap.get(taskId);
+      if (task) {
+        openErrorModal(task);
+      }
+      return;
+    }
+
+    // 2. Retry button
+    const retryBtn = e.target.closest('.queue-retry-btn');
+    if (retryBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const taskId = retryBtn.dataset.id;
+      if (taskId) {
+        retryTask(taskId);
+      }
+      return;
+    }
+
+    // 3. Cancel button
     const cancelBtn = e.target.closest('.queue-cancel-btn');
     if (!cancelBtn) return;
     e.preventDefault();
@@ -604,6 +688,86 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     cancelTask(taskId);
+  });
+
+  function openErrorModal(task) {
+    activeModalTaskId = task.id;
+    errorSongTitle.textContent = task.title || 'Unknown Song';
+    errorSummaryText.textContent = task.error || 'Download failed with yt-dlp error';
+    errorLogOutput.textContent = task.error_details || task.error || 'No detailed yt-dlp log output available.';
+    errorModal.classList.remove('hidden');
+  }
+
+  function closeErrorDetailsModal() {
+    errorModal.classList.add('hidden');
+    activeModalTaskId = null;
+  }
+
+  closeErrorModal.addEventListener('click', closeErrorDetailsModal);
+  closeErrorModalBtn.addEventListener('click', closeErrorDetailsModal);
+
+  copyErrorLogBtn.addEventListener('click', () => {
+    const text = errorLogOutput.textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Error log copied to clipboard', 'info');
+    }).catch(() => {
+      showToast('Could not copy to clipboard', 'warning');
+    });
+  });
+
+  retryErrorModalBtn.addEventListener('click', () => {
+    if (activeModalTaskId) {
+      retryTask(activeModalTaskId);
+      closeErrorDetailsModal();
+    }
+  });
+
+  async function retryTask(taskId) {
+    // Optimistic status update in UI
+    const card = queueList.querySelector(`.queue-item[data-id="${taskId}"]`);
+    if (card) {
+      card.className = 'queue-item queued';
+      const statusText = card.querySelector('.queue-status-text');
+      if (statusText) statusText.textContent = 'Re-queued for download...';
+      const bar = card.querySelector('.progress-bar');
+      if (bar) {
+        bar.className = 'progress-bar queued';
+        bar.style.width = '0%';
+      }
+    }
+
+    try {
+      const res = await fetch('/api/queue/retry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: taskId })
+      });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        showToast('Download re-queued successfully', 'success');
+        fetchQueueStatus();
+      } else {
+        showToast(data.error || 'Failed to retry download', 'error');
+      }
+    } catch (err) {
+      showToast('Failed to retry download: ' + err.message, 'error');
+    }
+  }
+
+  retryAllFailedBtn.addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/queue/retry-all', { method: 'POST' });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        const count = data.retried_count || 0;
+        showToast(count > 0 ? `Re-queued ${count} failed download(s)` : 'No failed downloads to retry', 'success');
+        fetchQueueStatus();
+      } else {
+        showToast(data.error || 'Error retrying downloads', 'error');
+      }
+    } catch (err) {
+      showToast('Failed to retry downloads: ' + err.message, 'error');
+    }
   });
 
   async function cancelTask(taskId) {

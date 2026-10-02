@@ -918,6 +918,26 @@ body {
   margin-top: 0.2rem;
 }
 
+.warning-subtle-btn {
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.warning-subtle-btn:hover {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fde68a;
+}
+
+.queue-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.queue-action-btn,
 .queue-cancel-btn {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid transparent;
@@ -934,6 +954,13 @@ body {
   flex-shrink: 0;
 }
 
+.queue-action-btn svg,
+.queue-cancel-btn svg {
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+
 .queue-cancel-btn:hover {
   color: #f87171;
   background: rgba(239, 68, 68, 0.18);
@@ -941,14 +968,69 @@ body {
   transform: scale(1.08);
 }
 
+.queue-retry-btn:hover {
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.18);
+  border-color: rgba(16, 185, 129, 0.35);
+  transform: scale(1.08);
+}
+
+.queue-details-btn:hover {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.35);
+  transform: scale(1.08);
+}
+
+.queue-action-btn:active,
 .queue-cancel-btn:active {
   transform: scale(0.92);
 }
 
-.queue-cancel-btn svg {
-  width: 14px;
-  height: 14px;
-  pointer-events: none;
+/* Error Details Modal */
+.error-modal-card {
+  max-width: 680px;
+}
+
+.error-meta-box {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+}
+
+.error-song-title {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--text-main);
+  margin-bottom: 0.4rem;
+}
+
+.error-summary-badge {
+  display: inline-block;
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+}
+
+.error-log-box {
+  background: #090d16;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: #cbd5e1;
+  max-height: 240px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
 }
 
 /* Animated Progress Bar */

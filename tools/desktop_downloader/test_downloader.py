@@ -210,6 +210,51 @@ class TestDownloadManager(unittest.TestCase):
         self.assertEqual(status["total_count"], 1)
         self.assertEqual(status["tasks"][0]["id"], t2["id"])
 
+    def test_retry_task(self):
+        t = self.dm.enqueue_download(
+            url_or_id="https://youtube.com/watch?v=fail1", title="Retry Me"
+        )
+        t["status"] = "error"
+        t["error"] = "yt-dlp exited with error code 1"
+        t["error_details"] = "ERROR: [youtube] fail1: Sign in to confirm you’re not a bot."
+
+        ok = self.dm.retry_task(t["id"])
+        self.assertTrue(ok)
+        self.assertEqual(t["status"], "queued")
+        self.assertIsNone(t["error"])
+        self.assertIsNone(t["error_details"])
+        self.assertEqual(t["progress"], 0.0)
+
+    def test_retry_all_failed(self):
+        t1 = self.dm.enqueue_download(url_or_id="https://youtube.com/watch?v=f1", title="Fail 1")
+        t2 = self.dm.enqueue_download(url_or_id="https://youtube.com/watch?v=f2", title="Fail 2")
+        t3 = self.dm.enqueue_download(url_or_id="https://youtube.com/watch?v=ok3", title="Queued 3")
+        t1["status"] = "error"
+        t2["status"] = "error"
+
+        count = self.dm.retry_all_failed()
+        self.assertEqual(count, 2)
+        self.assertEqual(t1["status"], "queued")
+        self.assertEqual(t2["status"], "queued")
+        self.assertEqual(t3["status"], "queued")
+
+    @patch("subprocess.Popen")
+    def test_execute_download_error_capturing(self, mock_popen):
+        proc_mock = MagicMock()
+        proc_mock.returncode = 1
+        proc_mock.stdout = [
+            "WARNING: [youtube] test: HTTP Error 429: Too Many Requests\n",
+            "ERROR: [youtube] test: Sign in to confirm you’re not a bot. Use --cookies-from-browser\n"
+        ]
+        mock_popen.return_value = proc_mock
+
+        t = self.dm.enqueue_download(url_or_id="https://youtube.com/watch?v=err_test", title="Bot Test")
+        self.dm._execute_download(t)
+
+        self.assertEqual(t["status"], "error")
+        self.assertIn("YouTube bot check", t["error"])
+        self.assertIn("Sign in to confirm", t["error_details"])
+
     def test_detect_storage_devices(self):
         devices = detect_storage_devices()
         self.assertIsInstance(devices, list)
@@ -376,7 +421,10 @@ class TestDownloaderHTTPAPI(unittest.TestCase):
         cls.port = sock.getsockname()[1]
         sock.close()
 
-        download_mgr.save_settings({"output_dir": cls.temp_dir, "default_quality": "480"})
+        cls.orig_config_file = download_mgr.config_file
+        cls.orig_settings = dict(download_mgr.settings)
+        download_mgr.config_file = os.path.join(cls.temp_dir, "test_settings.json")
+        download_mgr.settings = {"output_dir": cls.temp_dir, "default_quality": "480", "max_parallel": 1}
         download_mgr.set_paused(True)
 
         cls.server = ThreadingHTTPServer(("127.0.0.1", cls.port), DownloaderRequestHandler)
@@ -386,6 +434,8 @@ class TestDownloaderHTTPAPI(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        download_mgr.config_file = cls.orig_config_file
+        download_mgr.settings = cls.orig_settings
         cls.server.shutdown()
         cls.server.server_close()
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
@@ -465,11 +515,31 @@ class TestDownloaderHTTPAPI(unittest.TestCase):
         pause_data = json.loads(body.decode("utf-8"))
         self.assertIn("is_paused", pause_data)
 
-        # 4. Cancel item
+        # 4. Retry item API
+        with download_mgr.lock:
+            download_mgr.tasks[task_id]["status"] = "error"
+            download_mgr.tasks[task_id]["error"] = "Test error"
+
+        status, ctype, body = self._post("/api/queue/retry", {"task_id": task_id})
+        self.assertEqual(status, 200)
+        retry_data = json.loads(body.decode("utf-8"))
+        self.assertTrue(retry_data["retried"])
+        self.assertEqual(download_mgr.tasks[task_id]["status"], "queued")
+
+        # 5. Retry all API
+        with download_mgr.lock:
+            download_mgr.tasks[task_id]["status"] = "error"
+
+        status, ctype, body = self._post("/api/queue/retry-all", {})
+        self.assertEqual(status, 200)
+        retry_all_data = json.loads(body.decode("utf-8"))
+        self.assertGreaterEqual(retry_all_data["retried_count"], 1)
+
+        # 6. Cancel item
         status, ctype, body = self._post("/api/queue/cancel", {"task_id": task_id})
         self.assertEqual(status, 200)
 
-        # 5. Clear completed
+        # 7. Clear completed
         status, ctype, body = self._post("/api/queue/clear", {})
         self.assertEqual(status, 200)
 

@@ -350,7 +350,23 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"success": True, "status": "ok", "cancelled": ok})
             return
 
-        # 4. API: Clear completed/cancelled
+        # 5. API: Retry specific failed task
+        if path == "/api/queue/retry":
+            task_id = body.get("task_id") or body.get("id")
+            if not task_id:
+                self._send_json(400, {"success": False, "status": "error", "error": "Missing 'task_id'."})
+                return
+            ok = download_mgr.retry_task(task_id)
+            self._send_json(200, {"success": True, "status": "ok", "retried": ok, "task_id": task_id})
+            return
+
+        # 6. API: Retry all failed tasks
+        if path == "/api/queue/retry-all":
+            count = download_mgr.retry_all_failed()
+            self._send_json(200, {"success": True, "status": "ok", "retried_count": count})
+            return
+
+        # 7. API: Clear completed/cancelled
         if path == "/api/queue/clear":
             count = download_mgr.clear_completed()
             self._send_json(200, {"success": True, "status": "ok", "cleared_count": count})

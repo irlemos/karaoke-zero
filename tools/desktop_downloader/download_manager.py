@@ -419,6 +419,46 @@ class DownloadManager:
                 del self.tasks[tid]
             return len(to_delete)
 
+    def retry_task(self, task_id: str) -> bool:
+        """Resets a failed task to queued status and puts it back in the queue."""
+        with self.lock:
+            task = self.tasks.get(task_id)
+            if not task:
+                return False
+            task["status"] = "queued"
+            task["progress"] = 0.0
+            task["speed"] = ""
+            task["eta"] = ""
+            task["error"] = None
+            task["error_details"] = None
+            task["completed_at"] = None
+            task["created_at"] = time.time()
+        self.queue.put(task_id)
+        logger.info("Retrying task %s: '%s'", task_id, task.get("title", ""))
+        return True
+
+    def retry_all_failed(self) -> int:
+        """Retries all tasks currently in error status."""
+        to_retry = []
+        with self.lock:
+            for tid, t in self.tasks.items():
+                if t.get("status") == "error":
+                    t["status"] = "queued"
+                    t["progress"] = 0.0
+                    t["speed"] = ""
+                    t["eta"] = ""
+                    t["error"] = None
+                    t["error_details"] = None
+                    t["completed_at"] = None
+                    t["created_at"] = time.time()
+                    to_retry.append(tid)
+
+        for tid in to_retry:
+            self.queue.put(tid)
+
+        logger.info("Retrying %d failed tasks", len(to_retry))
+        return len(to_retry)
+
     def set_paused(self, paused: bool) -> bool:
         with self.lock:
             self.is_paused = paused
@@ -457,7 +497,7 @@ class DownloadManager:
             except Exception as e:
                 logger.exception("Worker loop exception: %s", e)
             finally:
-                time.sleep(0.2)
+                time.sleep(1.0)
 
     def _execute_download(self, task: Dict[str, Any]):
         task_id = task["id"]
@@ -471,6 +511,7 @@ class DownloadManager:
             with self.lock:
                 task["status"] = "error"
                 task["error"] = f"Cannot create output directory: {e}"
+                task["error_details"] = f"Failed to create directory {output_dir}: {e}"
             logger.error("Cannot create output dir %s: %s", output_dir, e)
             return
 
@@ -480,19 +521,27 @@ class DownloadManager:
             with self.lock:
                 task["status"] = "error"
                 task["error"] = f"yt-dlp binary not found: '{bin_target}'"
+                task["error_details"] = f"yt-dlp executable was not found on system PATH or fallback locations: {bin_target}"
             logger.error("yt-dlp not found: %s", bin_target)
             return
 
         # Target H.264 video + AAC/M4A audio in MP4 container for smooth Pi Zero hardware playback
-        format_spec = f"bestvideo[vcodec^=avc1][height<={quality}]+bestaudio[ext!=webm]/best[height<={quality}]/best"
+        # Resilient format fallback handles YouTube changes without failing downloads
+        format_spec = f"bestvideo[vcodec^=avc1][height<={quality}]+bestaudio[ext!=webm]/bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best"
         output_template = os.path.join(output_dir, "%(title)s [%(id)s].%(ext)s")
         archive_path = os.path.join(output_dir, "download_archive.txt")
 
+        # Essential flags:
+        # --extractor-args youtube:player_client=android,web bypasses YouTube "Sign in to confirm you're not a bot" challenge
         cmd = ytdlp_cmd + [
             "--no-playlist",
             "-f", format_spec,
             "-S", "vcodec:h264,res,acodec:m4a",
             "--merge-output-format", "mp4",
+            "--extractor-args", "youtube:player_client=android,web",
+            "--socket-timeout", "30",
+            "--retries", "3",
+            "--fragment-retries", "3",
             "--compat-options", "filename-sanitization",
             "--download-archive", archive_path,
             "--no-mtime",
@@ -502,6 +551,9 @@ class DownloadManager:
         ]
 
         logger.info("Starting yt-dlp download for '%s'...", task["title"])
+
+        output_lines = []
+        error_lines = []
 
         try:
             proc = subprocess.Popen(
@@ -525,6 +577,10 @@ class DownloadManager:
                 line = raw_line.strip()
                 if not line:
                     continue
+
+                output_lines.append(line)
+                if "ERROR:" in line or "error:" in line.lower() or "Sign in to confirm" in line or "HTTP Error" in line:
+                    error_lines.append(line)
 
                 # Capture destination or merged filepath from yt-dlp output
                 dest_m = re.search(r"\[(?:download|Merger)\]\s+(?:Destination:\s+|Merging formats into\s+)\"?([^\"\n\r]+)\"?", line)
@@ -561,6 +617,8 @@ class DownloadManager:
                 if proc.returncode == 0:
                     task["status"] = "completed"
                     task["progress"] = 100.0
+                    task["error"] = None
+                    task["error_details"] = None
                     self.completed_count += 1
                     if task.get("already_downloaded"):
                         task["completed_at"] = time.time() - 10.0
@@ -578,13 +636,41 @@ class DownloadManager:
                     logger.info("Download completed successfully: %s", task["title"])
                 else:
                     task["status"] = "error"
-                    task["error"] = f"yt-dlp exited with error code {proc.returncode}"
-                    logger.error("Download failed (code %d): %s", proc.returncode, task["title"])
+
+                    # Synthesize clear, meaningful human-readable error summary
+                    error_summary = None
+                    if error_lines:
+                        for el in reversed(error_lines):
+                            if "Sign in to confirm you" in el:
+                                error_summary = "YouTube bot check: Sign in to confirm you're not a bot"
+                                break
+                            elif "HTTP Error 429" in el:
+                                error_summary = "YouTube rate limited (HTTP 429: Too Many Requests)"
+                                break
+                            elif "Private video" in el or "Video unavailable" in el:
+                                error_summary = "Video unavailable or private"
+                                break
+                            else:
+                                clean_el = re.sub(r"^ERROR:\s*(\[[^\]]+\]\s*)?([A-Za-z0-9_-]+:\s*)?", "", el).strip()
+                                if clean_el and len(clean_el) > 5:
+                                    error_summary = clean_el
+                                    break
+
+                    if not error_summary:
+                        for line in reversed(output_lines):
+                            if not line.startswith("[download]") and len(line) > 5:
+                                error_summary = line
+                                break
+
+                    task["error"] = error_summary or f"yt-dlp exited with error code {proc.returncode}"
+                    task["error_details"] = "\n".join(output_lines[-25:]) if output_lines else f"Process exited with code {proc.returncode}"
+                    logger.error("Download failed (code %d): %s -> %s", proc.returncode, task["title"], task["error"])
 
         except Exception as e:
             with self.lock:
                 task["status"] = "error"
                 task["error"] = str(e)
+                task["error_details"] = str(e)
             logger.exception("Exception during download execution: %s", e)
         finally:
             if proc and proc.stdout:
