@@ -40,6 +40,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const detectedDrivesList = document.getElementById('detectedDrivesList');
   const customOutputDirInput = document.getElementById('customOutputDirInput');
 
+  // Search Type Tabs
+  const tabSongsBtn = document.getElementById('tabSongsBtn');
+  const tabPlaylistsBtn = document.getElementById('tabPlaylistsBtn');
+
   // Playlist Modal Elements
   const openPlaylistModalBtn = document.getElementById('openPlaylistModalBtn');
   const playlistModal = document.getElementById('playlistModal');
@@ -55,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const selectAllPlaylistBtn = document.getElementById('selectAllPlaylistBtn');
   const deselectAllPlaylistBtn = document.getElementById('deselectAllPlaylistBtn');
   const enqueuePlaylistBtn = document.getElementById('enqueuePlaylistBtn');
+  const downloadEntirePlaylistBtn = document.getElementById('downloadEntirePlaylistBtn');
   const selectedPlaylistCount = document.getElementById('selectedPlaylistCount');
 
   // Batch Modal Elements
@@ -75,9 +80,11 @@ document.addEventListener('DOMContentLoaded', () => {
     quality: '480',
     available_drives: []
   };
+  let currentSearchType = 'videos';
   let currentPlaylistTracks = [];
   let isQueuePaused = false;
   let enqueuedVideoUrls = new Set();
+  let enqueuedPlaylistUrls = new Set();
 
   // =========================================================================
   // Toast Notifications
@@ -219,7 +226,33 @@ document.addEventListener('DOMContentLoaded', () => {
   saveSettingsBtn.addEventListener('click', saveSettings);
 
   // =========================================================================
-  // YouTube Search & Video Cards
+  // Search Mode Tabs (Songs vs Playlists)
+  // =========================================================================
+  function setSearchType(type) {
+    currentSearchType = type;
+    if (type === 'playlists') {
+      tabPlaylistsBtn.classList.add('active');
+      tabSongsBtn.classList.remove('active');
+      searchInput.placeholder = "Search complete karaoke playlists (e.g. Queen, Anos 80, Sertanejo)...";
+      resultsTitle.textContent = "Recommended Playlists";
+    } else {
+      tabSongsBtn.classList.add('active');
+      tabPlaylistsBtn.classList.remove('active');
+      searchInput.placeholder = "Search karaoke songs, artists or paste YouTube video / playlist link...";
+      resultsTitle.textContent = "Recommended Songs";
+    }
+
+    const q = searchInput.value.trim();
+    if (q) {
+      performSearch(q);
+    }
+  }
+
+  if (tabSongsBtn) tabSongsBtn.addEventListener('click', () => setSearchType('videos'));
+  if (tabPlaylistsBtn) tabPlaylistsBtn.addEventListener('click', () => setSearchType('playlists'));
+
+  // =========================================================================
+  // YouTube Search & Results
   // =========================================================================
   async function performSearch(query) {
     const q = (query || searchInput.value).trim();
@@ -233,13 +266,13 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    resultsTitle.textContent = `Results for "${q}"`;
+    resultsTitle.textContent = currentSearchType === 'playlists' ? `Playlists for "${q}"` : `Results for "${q}"`;
     resultsCount.textContent = 'Searching...';
     searchLoader.classList.remove('hidden');
     resultsGrid.innerHTML = '';
 
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/search?type=${currentSearchType}&q=${encodeURIComponent(q)}`);
       const data = await res.json();
       searchLoader.classList.add('hidden');
 
@@ -247,15 +280,19 @@ document.addEventListener('DOMContentLoaded', () => {
         resultsCount.textContent = 'No results found';
         resultsGrid.innerHTML = `
           <div class="empty-queue-placeholder" style="grid-column: 1 / -1; padding: 3rem 1rem;">
-            <p>No karaoke tracks found for "${escapeHtml(q)}"</p>
-            <span>Try searching for artist name or song title + "karaoke"</span>
+            <p>No ${currentSearchType === 'playlists' ? 'playlists' : 'karaoke tracks'} found for "${escapeHtml(q)}"</p>
+            <span>Try searching for artist name, genre, or band</span>
           </div>
         `;
         return;
       }
 
-      resultsCount.textContent = `${data.results.length} songs found`;
-      renderSearchResults(data.results);
+      resultsCount.textContent = `${data.results.length} ${currentSearchType === 'playlists' ? 'playlists' : 'songs'} found`;
+      if (currentSearchType === 'playlists') {
+        renderPlaylistResults(data.results);
+      } else {
+        renderSearchResults(data.results);
+      }
     } catch (err) {
       searchLoader.classList.add('hidden');
       resultsCount.textContent = 'Search failed';
@@ -295,6 +332,71 @@ document.addEventListener('DOMContentLoaded', () => {
       const addBtn = card.querySelector('.card-btn');
       addBtn.addEventListener('click', () => {
         enqueueSingleTrack(item, addBtn);
+      });
+
+      resultsGrid.appendChild(card);
+    });
+  }
+
+  function renderPlaylistResults(items) {
+    resultsGrid.innerHTML = '';
+    items.forEach(pl => {
+      const card = document.createElement('div');
+      card.className = 'video-card playlist-card';
+
+      const isEnqueued = enqueuedPlaylistUrls.has(pl.url);
+
+      card.innerHTML = `
+        <div class="thumbnail-container">
+          <img class="thumbnail-img" src="${escapeHtml(pl.thumbnail)}" alt="${escapeHtml(pl.title)}" loading="lazy">
+          <span class="playlist-tag">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="8" y1="6" x2="21" y2="6"/>
+              <line x1="8" y1="12" x2="21" y2="12"/>
+              <line x1="8" y1="18" x2="21" y2="18"/>
+              <line x1="3" y1="6" x2="3.01" y2="6"/>
+              <line x1="3" y1="12" x2="3.01" y2="12"/>
+              <line x1="3" y1="18" x2="3.01" y2="18"/>
+            </svg>
+            Playlist
+          </span>
+          <span class="playlist-count-badge">${escapeHtml(pl.video_count || 'Full List')}</span>
+        </div>
+        <div class="card-details">
+          <h3 class="card-title" title="${escapeHtml(pl.title)}">${escapeHtml(pl.title)}</h3>
+          <span class="card-channel">${escapeHtml(pl.channel || pl.uploader || 'YouTube Playlist')}</span>
+          <div class="card-footer">
+            <div class="playlist-card-actions">
+              <button class="card-btn inspect-pl-btn" data-url="${escapeHtml(pl.url)}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+                <span>Inspect</span>
+              </button>
+              <button class="card-btn btn-accent download-pl-btn ${isEnqueued ? 'enqueued' : ''}" data-url="${escapeHtml(pl.url)}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="8 17 12 21 16 17"/>
+                  <line x1="12" y1="12" x2="12" y2="21"/>
+                  <path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/>
+                </svg>
+                <span>${isEnqueued ? 'Enqueued' : 'Download All'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const inspectBtn = card.querySelector('.inspect-pl-btn');
+      inspectBtn.addEventListener('click', () => {
+        playlistUrlInput.value = pl.url;
+        playlistModal.classList.remove('hidden');
+        inspectPlaylist();
+      });
+
+      const dlAllBtn = card.querySelector('.download-pl-btn');
+      dlAllBtn.addEventListener('click', () => {
+        enqueueEntirePlaylist(pl.url, pl.title, dlAllBtn);
       });
 
       resultsGrid.appendChild(card);
@@ -631,6 +733,59 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast('Batch error: ' + err.message, 'error');
     }
   });
+
+  async function enqueueEntirePlaylist(playlistUrl, playlistTitle, buttonEl) {
+    if (buttonEl) {
+      buttonEl.disabled = true;
+      buttonEl.innerHTML = `<span>Analyzing...</span>`;
+    }
+    showToast(`Analyzing and enqueuing complete playlist...`, 'info');
+
+    try {
+      const res = await fetch('/api/download/playlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: playlistUrl,
+          quality: qualitySelect.value
+        })
+      });
+
+      const data = await res.json();
+      if (data.status === 'ok') {
+        enqueuedPlaylistUrls.add(playlistUrl);
+        showToast(`Enqueued complete playlist "${data.playlist_title || playlistTitle}" (${data.enqueued_count} songs)!`, 'success');
+        fetchQueueStatus();
+        if (buttonEl) {
+          buttonEl.classList.add('enqueued');
+          buttonEl.innerHTML = `<span>Enqueued (${data.enqueued_count})</span>`;
+        }
+        playlistModal.classList.add('hidden');
+      } else {
+        showToast(data.error || 'Failed to enqueue playlist', 'error');
+        if (buttonEl) {
+          buttonEl.disabled = false;
+          buttonEl.innerHTML = `<span>Download All</span>`;
+        }
+      }
+    } catch (err) {
+      showToast('Playlist error: ' + err.message, 'error');
+      if (buttonEl) {
+        buttonEl.disabled = false;
+        buttonEl.innerHTML = `<span>Download All</span>`;
+      }
+    }
+  }
+
+  if (downloadEntirePlaylistBtn) {
+    downloadEntirePlaylistBtn.addEventListener('click', () => {
+      const url = playlistUrlInput.value.trim();
+      const title = playlistTitle.textContent;
+      if (url) {
+        enqueueEntirePlaylist(url, title, downloadEntirePlaylistBtn);
+      }
+    });
+  }
 
   // =========================================================================
   // Batch Text List Import Modal

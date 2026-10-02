@@ -25,7 +25,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
-from youtube_search import search_youtube, extract_playlist_info
+from youtube_search import search_youtube, search_playlists, extract_playlist_info
 from download_manager import (
     DownloadManager,
     detect_storage_devices,
@@ -101,13 +101,31 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
         path = parsed_url.path
         query_params = urllib.parse.parse_qs(parsed_url.query)
 
-        # 1. API: Search YouTube
+        # 1. API: Search YouTube (Videos or Playlists)
         if path == "/api/search":
             q = query_params.get("q", [""])[0].strip()
+            search_type = query_params.get("type", ["videos"])[0].lower()
             max_r = int(query_params.get("limit", [15])[0])
-            ytdlp_cmd = resolve_ytdlp_command()
-            results = search_youtube(q, max_results=max_r, ytdlp_cmd=ytdlp_cmd)
-            self._send_json(200, {"success": True, "results": results, "count": len(results)})
+
+            if search_type == "playlists":
+                results = search_playlists(q, max_results=max_r)
+                self._send_json(200, {
+                    "success": True,
+                    "status": "ok",
+                    "type": "playlists",
+                    "results": results,
+                    "count": len(results)
+                })
+            else:
+                ytdlp_cmd = resolve_ytdlp_command()
+                results = search_youtube(q, max_results=max_r, ytdlp_cmd=ytdlp_cmd)
+                self._send_json(200, {
+                    "success": True,
+                    "status": "ok",
+                    "type": "videos",
+                    "results": results,
+                    "count": len(results)
+                })
             return
 
         # 2. API: Extract Playlist
@@ -227,7 +245,37 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
             })
             return
 
-        # 3. API: Cancel task
+        # 3. API: Enqueue complete playlist by URL
+        if path == "/api/download/playlist":
+            url = body.get("url")
+            quality = body.get("quality") or body.get("default_quality")
+            if not url:
+                self._send_json(400, {"success": False, "status": "error", "error": "Missing 'url' field."})
+                return
+
+            ytdlp_cmd = resolve_ytdlp_command()
+            info = extract_playlist_info(url, ytdlp_cmd=ytdlp_cmd)
+            if not info.get("success") or not info.get("items"):
+                self._send_json(400, {
+                    "success": False,
+                    "status": "error",
+                    "error": info.get("error") or "No songs found in playlist."
+                })
+                return
+
+            items = info["items"]
+            enqueued = download_mgr.enqueue_batch(items, quality=quality)
+            self._send_json(200, {
+                "success": True,
+                "status": "ok",
+                "playlist_title": info.get("title"),
+                "playlist_id": info.get("id"),
+                "enqueued_count": len(enqueued),
+                "tasks": enqueued
+            })
+            return
+
+        # 4. API: Cancel task
         if path == "/api/queue/cancel":
             task_id = body.get("task_id")
             if not task_id:

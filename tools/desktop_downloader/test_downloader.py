@@ -34,6 +34,8 @@ from desktop_downloader.download_manager import (
 from desktop_downloader.youtube_search import (
     parse_duration_seconds,
     search_youtube,
+    search_playlists,
+    extract_playlist_info,
 )
 from desktop_downloader.app import DownloaderRequestHandler, download_mgr
 
@@ -200,6 +202,87 @@ class TestSearchYouTube(unittest.TestCase):
         self.assertEqual(results[0]["duration"], "5:55")
         self.assertEqual(results[0]["duration_sec"], 355)
 
+    @patch("urllib.request.urlopen")
+    def test_search_playlists_mocked(self, mock_urlopen):
+        mock_data = {
+            "contents": {
+                "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [
+                                {
+                                    "itemSectionRenderer": {
+                                        "contents": [
+                                            {
+                                                "lockupViewModel": {
+                                                    "contentId": "PLtest123",
+                                                    "contentType": "LOCKUP_CONTENT_TYPE_PLAYLIST",
+                                                    "metadata": {
+                                                        "lockupMetadataViewModel": {
+                                                            "title": {"content": "Greatest Karaoke Hits Playlist"},
+                                                            "metadata": {
+                                                                "contentMetadataViewModel": {
+                                                                    "metadataRows": [
+                                                                        {
+                                                                            "metadataParts": [
+                                                                                {"text": {"content": "Karaoke Master"}}
+                                                                            ]
+                                                                        }
+                                                                    ]
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "contentImage": {
+                                                        "collectionThumbnailViewModel": {
+                                                            "primaryThumbnail": {
+                                                                "thumbnailViewModel": {
+                                                                    "overlays": [
+                                                                        {
+                                                                            "thumbnailOverlayBadgeViewModel": {
+                                                                                "thumbnailBadges": [
+                                                                                    {
+                                                                                        "thumbnailBadgeViewModel": {
+                                                                                            "text": "45 videos"
+                                                                                        }
+                                                                                    }
+                                                                                ]
+                                                                            }
+                                                                        }
+                                                                    ],
+                                                                    "image": {
+                                                                        "sources": [
+                                                                            {"url": "https://example.com/playlist_thumb.jpg"}
+                                                                        ]
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+        mock_html = f"var ytInitialData = {json.dumps(mock_data)};</script>".encode("utf-8")
+        mock_response = MagicMock()
+        mock_response.read.return_value = mock_html
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        playlists = search_playlists("rock karaoke", max_results=5)
+        self.assertEqual(len(playlists), 1)
+        self.assertEqual(playlists[0]["id"], "PLtest123")
+        self.assertEqual(playlists[0]["title"], "Greatest Karaoke Hits Playlist")
+        self.assertEqual(playlists[0]["channel"], "Karaoke Master")
+        self.assertEqual(playlists[0]["video_count"], "45 videos")
+        self.assertIn("PLtest123", playlists[0]["url"])
+
 
 class TestDownloaderHTTPAPI(unittest.TestCase):
     @classmethod
@@ -306,6 +389,49 @@ class TestDownloaderHTTPAPI(unittest.TestCase):
         # 5. Clear completed
         status, ctype, body = self._post("/api/queue/clear", {})
         self.assertEqual(status, 200)
+
+    @patch("desktop_downloader.app.search_playlists")
+    def test_search_api_with_playlists_type(self, mock_search_pl):
+        mock_search_pl.return_value = [
+            {
+                "id": "PLsertanejo123",
+                "title": "Sertanejo Karaoke Best",
+                "channel": "Sertanejo Hits",
+                "video_count": "50 videos",
+                "thumbnail": "https://example.com/thumb.jpg",
+                "url": "https://www.youtube.com/playlist?list=PLsertanejo123"
+            }
+        ]
+        status, ctype, body = self._get("/api/search?type=playlists&q=sertanejo")
+        self.assertEqual(status, 200)
+        data = json.loads(body.decode("utf-8"))
+        self.assertEqual(data["status"], "ok")
+        self.assertEqual(data["type"], "playlists")
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["id"], "PLsertanejo123")
+
+    @patch("desktop_downloader.app.extract_playlist_info")
+    def test_download_playlist_api(self, mock_extract):
+        mock_extract.return_value = {
+            "success": True,
+            "id": "PLrock99",
+            "title": "Rock Karaoke Collection",
+            "count": 2,
+            "items": [
+                {"id": "v1", "title": "Rock 1", "thumbnail": "", "url": "https://youtube.com/watch?v=v1"},
+                {"id": "v2", "title": "Rock 2", "thumbnail": "", "url": "https://youtube.com/watch?v=v2"}
+            ]
+        }
+
+        status, ctype, body = self._post(
+            "/api/download/playlist",
+            {"url": "https://www.youtube.com/playlist?list=PLrock99", "quality": "480"}
+        )
+        self.assertEqual(status, 200)
+        data = json.loads(body.decode("utf-8"))
+        self.assertEqual(data["status"], "ok")
+        self.assertEqual(data["enqueued_count"], 2)
+        self.assertEqual(data["playlist_title"], "Rock Karaoke Collection")
 
 
 if __name__ == "__main__":
