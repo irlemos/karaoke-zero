@@ -15,10 +15,85 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import uuid
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("DesktopDownloader.Manager")
+
+
+def sanitize_filename(name: str, max_len: int = 180) -> str:
+    """
+    Sanitizes a string for use as a clean, legible filesystem filename.
+    Removes emojis, icons, symbols, control chars, unreadable glyphs, and filesystem-reserved characters.
+    Preserves legible letters (including accents), numbers, spaces, and safe punctuation.
+    """
+    if not name:
+        return "Song"
+
+    # Step 1: Normalize compatibility characters (e.g. ᴴᴰ -> HD, fullwidth symbols -> standard)
+    s = unicodedata.normalize("NFKC", str(name))
+
+    # Step 2: Replace dividers, quotes, and brackets with clean equivalents
+    s = s.replace("/", " - ").replace("\\", " - ")
+    s = s.replace("|", " - ").replace(":", " - ").replace(";", " ")
+    s = s.replace("【", "[").replace("】", "]").replace("（", "(").replace("）", ")")
+    s = s.replace("“", "").replace("”", "").replace("‘", "").replace("’", "").replace("`", "")
+    s = s.replace('"', "").replace("'", "")
+    s = s.replace("—", "-").replace("–", "-").replace("−", "-")
+
+    # Step 3: Filter characters
+    # Keep Letters (L*), Numbers (N*), Spaces (Zs), Combining marks (M*), and safe punctuation (-_.(),[]&)
+    # Drops emojis/icons (So, Sm, Sc, Sk), controls (Cc, Cf, Cn, Cs), and special characters (*?<>~!@#$%^=+)
+    allowed = []
+    for ch in s:
+        cat = unicodedata.category(ch)
+        if cat.startswith("L") or cat.startswith("N") or cat.startswith("M"):
+            allowed.append(ch)
+        elif ch in " -_.(),[]&":
+            allowed.append(ch)
+
+    cleaned = "".join(allowed)
+
+    # Step 4: Clean up spacing, multiple hyphens, and brackets
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = re.sub(r"\s*-\s*", " - ", cleaned)
+    cleaned = re.sub(r"( - )+", " - ", cleaned)
+    cleaned = re.sub(r"\[\s+", "[", cleaned)
+    cleaned = re.sub(r"\s+\]", "]", cleaned)
+    cleaned = re.sub(r"\](?=[A-Za-z0-9])", "] ", cleaned)
+    cleaned = re.sub(r"(?<=[A-Za-z0-9])\[", " [", cleaned)
+    cleaned = re.sub(r"\(\s+", "(", cleaned)
+    cleaned = re.sub(r"\s+\)", ")", cleaned)
+    cleaned = cleaned.strip(" .-_")
+
+    if not cleaned:
+        cleaned = "Song"
+
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len].strip(" .-_")
+
+    return cleaned
+
+
+def sanitize_file_path(filepath: str) -> str:
+    """
+    Sanitizes a full file path by cleaning the basename while preserving directory and extension.
+    If the file ends with a YouTube video ID in brackets '[id]', the ID is preserved.
+    """
+    dirname, filename = os.path.split(filepath)
+    name, ext = os.path.splitext(filename)
+
+    m = re.search(r"^(.*?)\s*(\[[A-Za-z0-9_-]{6,}\])$", name)
+    if m:
+        raw_title = m.group(1)
+        id_part = m.group(2)
+        clean_title = sanitize_filename(raw_title)
+        new_filename = f"{clean_title} {id_part}{ext}"
+    else:
+        new_filename = f"{sanitize_filename(name)}{ext}"
+
+    return os.path.join(dirname, new_filename)
 
 
 def resolve_ytdlp_command() -> List[str]:
@@ -159,6 +234,7 @@ class DownloadManager:
         self.is_paused: bool = False
         self.current_process: Optional[subprocess.Popen] = None
         self.active_task_id: Optional[str] = None
+        self.completed_count: int = 0
 
         # Configuration storage
         user_home = os.path.expanduser("~")
@@ -230,10 +306,12 @@ class DownloadManager:
         if not target_url.startswith("http://") and not target_url.startswith("https://"):
             target_url = f"https://www.youtube.com/watch?v={url_or_id}"
 
+        clean_title = sanitize_filename(title) if title else "Unknown Song"
+
         task: Dict[str, Any] = {
             "id": task_id,
             "url": target_url,
-            "title": title or "Unknown Song",
+            "title": clean_title,
             "uploader": uploader or "YouTube",
             "duration": duration or "",
             "thumbnail": thumbnail or "",
@@ -272,7 +350,19 @@ class DownloadManager:
 
     def get_queue_status(self) -> Dict[str, Any]:
         """Returns the current state of all tasks and queue controls."""
+        now = time.time()
         with self.lock:
+            # Completed tasks leave the download list (purged after 1.5s grace period)
+            # Cancelled tasks are purged immediately
+            to_purge = [
+                tid for tid, t in self.tasks.items()
+                if t.get("status") == "cancelled" or (
+                    t.get("status") == "completed" and (now - (t.get("completed_at") or 0)) > 1.5
+                )
+            ]
+            for tid in to_purge:
+                del self.tasks[tid]
+
             all_tasks = sorted(self.tasks.values(), key=lambda t: t["created_at"], reverse=True)
             active = [t for t in all_tasks if t["status"] == "downloading"]
             queued = [t for t in all_tasks if t["status"] == "queued"]
@@ -285,38 +375,45 @@ class DownloadManager:
                 "queued": queued,
                 "completed": completed,
                 "errors": errors,
+                "completed_count": self.completed_count,
                 "total_count": len(all_tasks),
                 "tasks": all_tasks
             }
 
     def cancel_task(self, task_id: str) -> bool:
-        """Cancels a queued or active download."""
+        """Cancels a queued or active download and immediately removes it from the task list."""
         with self.lock:
             task = self.tasks.get(task_id)
             if not task:
                 return False
 
-            if task["status"] == "queued":
-                task["status"] = "cancelled"
-                return True
-
-            if task["status"] == "downloading" and self.active_task_id == task_id:
+            if self.active_task_id == task_id or task.get("status") == "downloading":
                 task["status"] = "cancelled"
                 if self.current_process:
                     try:
                         self.current_process.terminate()
-                    except Exception:
-                        pass
-                return True
+                        try:
+                            self.current_process.wait(timeout=0.3)
+                        except subprocess.TimeoutExpired:
+                            self.current_process.kill()
+                    except Exception as e:
+                        logger.debug("Error terminating process for task %s: %s", task_id, e)
+                self.active_task_id = None
+                self.current_process = None
 
-        return False
+            task["status"] = "cancelled"
+            if task_id in self.tasks:
+                del self.tasks[task_id]
+
+            logger.info("Cancelled and removed task %s", task_id)
+            return True
 
     def clear_completed(self) -> int:
-        """Removes completed and cancelled items from the task history."""
+        """Removes completed, cancelled, and error items from the queue."""
         with self.lock:
             to_delete = [
                 tid for tid, t in self.tasks.items()
-                if t["status"] in ("completed", "cancelled")
+                if t["status"] in ("completed", "cancelled", "error")
             ]
             for tid in to_delete:
                 del self.tasks[tid]
@@ -422,11 +519,17 @@ class DownloadManager:
                 r"\[download\]\s+(\d+(?:\.\d+)?)%\s+of\s+~?(\S+)\s+at\s+(\S+)\s+ETA\s+(\S+)"
             )
             already_downloaded_regex = re.compile(r"\[download\]\s+(.+)\s+has already been downloaded")
+            downloaded_filepath = None
 
             for raw_line in proc.stdout:
                 line = raw_line.strip()
                 if not line:
                     continue
+
+                # Capture destination or merged filepath from yt-dlp output
+                dest_m = re.search(r"\[(?:download|Merger)\]\s+(?:Destination:\s+|Merging formats into\s+)\"?([^\"\n\r]+)\"?", line)
+                if dest_m:
+                    downloaded_filepath = dest_m.group(1).strip()
 
                 # Check if archive matched an already-downloaded file
                 if already_downloaded_regex.search(line):
@@ -434,6 +537,7 @@ class DownloadManager:
                         task["progress"] = 100.0
                         task["speed"] = "Archived"
                         task["eta"] = "00:00"
+                        task["already_downloaded"] = True
                     continue
 
                 m = progress_regex.search(line)
@@ -457,7 +561,20 @@ class DownloadManager:
                 if proc.returncode == 0:
                     task["status"] = "completed"
                     task["progress"] = 100.0
-                    task["completed_at"] = time.time()
+                    self.completed_count += 1
+                    if task.get("already_downloaded"):
+                        task["completed_at"] = time.time() - 10.0
+                    else:
+                        task["completed_at"] = time.time()
+
+                    # Sanitize filename on disk: eliminate emojis, icons, and unreadable characters
+                    clean_target = self._sanitize_downloaded_file(output_dir, task, downloaded_filepath)
+                    if clean_target:
+                        clean_name = os.path.splitext(os.path.basename(clean_target))[0]
+                        clean_title = re.sub(r"\s*\[[A-Za-z0-9_-]+\]$", "", clean_name)
+                        task["title"] = clean_title or clean_name
+                        task["filepath"] = clean_target
+
                     logger.info("Download completed successfully: %s", task["title"])
                 else:
                     task["status"] = "error"
@@ -475,3 +592,45 @@ class DownloadManager:
                     proc.stdout.close()
                 except Exception:
                     pass
+
+    def _sanitize_downloaded_file(
+        self,
+        output_dir: str,
+        task: Dict[str, Any],
+        candidate_path: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Locates the downloaded file on disk and renames it to remove emojis,
+        icons, special characters, and unreadable glyphs.
+        """
+        target_file = None
+        if candidate_path and os.path.isfile(candidate_path):
+            target_file = candidate_path
+
+        # If not directly identified, find by YouTube video ID in output_dir
+        if not target_file:
+            vid_m = re.search(r"(?:v=|youtu\.be/|vi/)([A-Za-z0-9_-]{11})", task.get("url", ""))
+            if vid_m:
+                vid = vid_m.group(1)
+                try:
+                    for entry in os.listdir(output_dir):
+                        if f"[{vid}]" in entry and os.path.isfile(os.path.join(output_dir, entry)):
+                            target_file = os.path.join(output_dir, entry)
+                            break
+                except Exception as e:
+                    logger.debug("Error scanning output dir for video %s: %s", vid, e)
+
+        if not target_file or not os.path.isfile(target_file):
+            return None
+
+        clean_path = sanitize_file_path(target_file)
+        if clean_path != target_file:
+            try:
+                os.replace(target_file, clean_path)
+                logger.info("Sanitized filename on disk: '%s' -> '%s'", os.path.basename(target_file), os.path.basename(clean_path))
+                return clean_path
+            except Exception as e:
+                logger.warning("Failed to rename file '%s' to '%s': %s", target_file, clean_path, e)
+                return target_file
+
+        return target_file

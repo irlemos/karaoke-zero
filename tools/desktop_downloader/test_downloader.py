@@ -30,6 +30,8 @@ from desktop_downloader.download_manager import (
     DownloadManager,
     detect_storage_devices,
     resolve_ytdlp_command,
+    sanitize_filename,
+    sanitize_file_path,
 )
 from desktop_downloader.youtube_search import (
     parse_duration_seconds,
@@ -47,6 +49,46 @@ class TestDurationParsing(unittest.TestCase):
         self.assertEqual(parse_duration_seconds("1:02:15"), 3735)
         self.assertEqual(parse_duration_seconds("invalid"), 0)
         self.assertEqual(parse_duration_seconds(""), 0)
+
+
+class TestFilenameSanitization(unittest.TestCase):
+    def test_sanitize_emojis_and_icons(self):
+        s = "🎤 Queen - Bohemian Rhapsody (Official Karaoke Video) ᴴᴰ 🔥 [4K]"
+        clean = sanitize_filename(s)
+        self.assertEqual(clean, "Queen - Bohemian Rhapsody (Official Karaoke Video) HD [4K]")
+        self.assertNotIn("🎤", clean)
+        self.assertNotIn("🔥", clean)
+
+    def test_sanitize_accents_preserved(self):
+        s = "🎵 Evidências - Chitãozinho & Xororó (Karaokê) ⭐ [HD]!?"
+        clean = sanitize_filename(s)
+        self.assertEqual(clean, "Evidências - Chitãozinho & Xororó (Karaokê) [HD]")
+        self.assertIn("Evidências", clean)
+        self.assertIn("Chitãozinho", clean)
+        self.assertNotIn("🎵", clean)
+        self.assertNotIn("⭐", clean)
+        self.assertNotIn("!?", clean)
+
+    def test_sanitize_quotes_and_brackets(self):
+        s = "✨【KARAOKE】“Song Title” / ‘Artist’ ft. Someone `Special` 🎉"
+        clean = sanitize_filename(s)
+        self.assertEqual(clean, "[KARAOKE] Song Title - Artist ft. Someone Special")
+
+    def test_sanitize_forbidden_and_unreadable(self):
+        s = "Song with *bad* :chars: | pipes | \\slashes/ and \u200b\u200e\ufeff zero-width chars"
+        clean = sanitize_filename(s)
+        self.assertNotIn("*", clean)
+        self.assertNotIn(":", clean)
+        self.assertNotIn("|", clean)
+        self.assertNotIn("/", clean)
+        self.assertNotIn("\\", clean)
+        self.assertNotIn("\u200b", clean)
+        self.assertNotIn("\ufeff", clean)
+
+    def test_sanitize_file_path(self):
+        p = "/mnt/hd/songs/🎤 Queen - Bohemian ᴴᴰ 🔥 [dQw4w9WgXcQ].mp4"
+        clean_p = sanitize_file_path(p)
+        self.assertEqual(clean_p, "/mnt/hd/songs/Queen - Bohemian HD [dQw4w9WgXcQ].mp4")
 
 
 class TestDownloadManager(unittest.TestCase):
@@ -106,11 +148,44 @@ class TestDownloadManager(unittest.TestCase):
         task = self.dm.enqueue_download(
             url_or_id="https://youtube.com/watch?v=cancel_me", title="Cancel Test"
         )
+        self.assertIn(task["id"], self.dm.tasks)
         success = self.dm.cancel_task(task["id"])
         self.assertTrue(success)
+        self.assertNotIn(task["id"], self.dm.tasks)
+        status = self.dm.get_queue_status()
+        self.assertEqual(len(status["tasks"]), 0)
 
         # Non-existent task returns False
         self.assertFalse(self.dm.cancel_task("non-existent-id"))
+
+    def test_completed_tasks_auto_leave_queue(self):
+        t1 = self.dm.enqueue_download(
+            url_or_id="https://youtube.com/watch?v=comp1", title="Comp 1"
+        )
+        t1["status"] = "completed"
+        t1["completed_at"] = time.time() - 2.5
+        self.dm.completed_count = 1
+
+        status = self.dm.get_queue_status()
+        self.assertEqual(len(status["tasks"]), 0)
+        self.assertEqual(status["completed_count"], 1)
+
+    def test_sanitize_downloaded_file_on_disk(self):
+        test_file = os.path.join(self.temp_dir, "🎤 Queen - Test Song 🔥 [dQw4w9WgXcQ].mp4")
+        with open(test_file, "w") as f:
+            f.write("dummy media")
+
+        task = {
+            "id": "test_t",
+            "url": "https://youtube.com/watch?v=dQw4w9WgXcQ",
+            "title": "Old Title"
+        }
+        renamed = self.dm._sanitize_downloaded_file(self.temp_dir, task, test_file)
+        self.assertIsNotNone(renamed)
+        expected_name = "Queen - Test Song [dQw4w9WgXcQ].mp4"
+        self.assertEqual(os.path.basename(renamed), expected_name)
+        self.assertTrue(os.path.isfile(renamed))
+        self.assertFalse(os.path.isfile(test_file))
 
     def test_clear_completed(self):
         t1 = self.dm.enqueue_download(

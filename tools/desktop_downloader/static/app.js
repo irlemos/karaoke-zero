@@ -513,6 +513,11 @@ document.addEventListener('DOMContentLoaded', () => {
         existingElements.delete(task.id);
       }
 
+      if (task.status === 'cancelled') {
+        if (itemEl) itemEl.remove();
+        return;
+      }
+
       // Update card content
       const percent = Math.min(100, Math.max(0, task.progress || 0));
       const speedText = task.speed || '';
@@ -523,7 +528,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if (task.status === 'downloading') {
         statusDescription = `${percent.toFixed(1)}% • ${speedText} • ${etaText}`;
       } else if (task.status === 'completed') {
-        statusDescription = `Completed (${sizeText || 'H.264 MP4'})`;
+        statusDescription = `Completed ✓ (${sizeText || 'H.264 MP4'})`;
+        // Schedule auto-leave from download queue after a brief completion confirmation
+        setTimeout(() => {
+          const el = queueList.querySelector(`.queue-item[data-id="${task.id}"]`);
+          if (el) {
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(-12px)';
+            setTimeout(() => el.remove(), 250);
+          }
+        }, 1200);
       } else if (task.status === 'error') {
         statusDescription = `Failed: ${task.error || 'Download error'}`;
       }
@@ -535,14 +549,12 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="queue-title" title="${escapeHtml(task.title)}">${escapeHtml(task.title)}</div>
             <div class="queue-status-text">${escapeHtml(statusDescription)}</div>
           </div>
-          ${task.status !== 'completed' ? `
-            <button class="queue-cancel-btn" title="Cancel Download" data-id="${task.id}">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="18" y1="6" x2="6" y2="18"/>
-                <line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
-          ` : ''}
+          <button class="queue-cancel-btn" title="Remove from Queue" data-id="${task.id}" data-url="${escapeHtml(task.url || '')}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
         </div>
         <div class="progress-container">
           <div class="progress-bar ${task.status}" style="width: ${percent}%"></div>
@@ -554,16 +566,45 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
         ` : ''}
       `;
-
-      const cancelBtn = itemEl.querySelector('.queue-cancel-btn');
-      if (cancelBtn) {
-        cancelBtn.addEventListener('click', () => cancelTask(task.id));
-      }
     });
 
     // Remove deleted tasks from DOM
     existingElements.forEach(el => el.remove());
   }
+
+  // Delegated event listener for canceling/removing items from queue
+  queueList.addEventListener('click', (e) => {
+    const cancelBtn = e.target.closest('.queue-cancel-btn');
+    if (!cancelBtn) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const taskId = cancelBtn.dataset.id;
+    const taskUrl = cancelBtn.dataset.url;
+    if (!taskId) return;
+
+    // Optimistic UI removal: immediately fade out and remove card from DOM
+    const card = cancelBtn.closest('.queue-item');
+    if (card) {
+      card.style.opacity = '0';
+      card.style.transform = 'translateX(24px)';
+      setTimeout(() => card.remove(), 200);
+    }
+
+    // Reset search button if visible
+    if (taskUrl) {
+      enqueuedVideoUrls.delete(taskUrl);
+      enqueuedPlaylistUrls.delete(taskUrl);
+      const searchBtns = document.querySelectorAll(`.card-btn[data-url="${escapeHtml(taskUrl)}"]`);
+      searchBtns.forEach(btn => {
+        btn.classList.remove('enqueued');
+        const span = btn.querySelector('span');
+        if (span) span.textContent = 'Add to Queue';
+      });
+    }
+
+    cancelTask(taskId);
+  });
 
   async function cancelTask(taskId) {
     try {
@@ -575,9 +616,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       if (data.status === 'ok') {
         fetchQueueStatus();
+        showToast('Item removed from download list', 'info');
       }
     } catch (err) {
-      showToast('Failed to cancel task: ' + err.message, 'error');
+      showToast('Failed to remove item: ' + err.message, 'error');
     }
   }
 

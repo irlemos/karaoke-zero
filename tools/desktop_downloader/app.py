@@ -142,9 +142,9 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
             stats = {
                 "queued": len(status.get("queued", [])),
                 "downloading": len(status.get("active", [])),
-                "completed": len(status.get("completed", [])),
+                "completed": status.get("completed_count", 0),
                 "errors": len(status.get("errors", [])),
-                "total": status.get("total_count", 0)
+                "total": len(status.get("active", [])) + len(status.get("queued", []))
             }
             self._send_json(200, {
                 "success": True,
@@ -275,14 +275,14 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
             })
             return
 
-        # 4. API: Cancel task
-        if path == "/api/queue/cancel":
-            task_id = body.get("task_id")
+        # 4. API: Cancel / Remove task from queue
+        if path in ("/api/queue/cancel", "/api/queue/remove"):
+            task_id = body.get("task_id") or body.get("id")
             if not task_id:
                 self._send_json(400, {"success": False, "status": "error", "error": "Missing 'task_id'."})
                 return
             ok = download_mgr.cancel_task(task_id)
-            self._send_json(200, {"success": ok, "status": "ok" if ok else "error"})
+            self._send_json(200, {"success": True, "status": "ok", "cancelled": ok})
             return
 
         # 4. API: Clear completed/cancelled

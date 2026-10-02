@@ -16,6 +16,15 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
+try:
+    from download_manager import sanitize_filename
+except ImportError:
+    try:
+        from desktop_downloader.download_manager import sanitize_filename
+    except ImportError:
+        def sanitize_filename(name: str, max_len: int = 180) -> str:
+            return name
+
 logger = logging.getLogger("DesktopDownloader.Search")
 
 
@@ -115,7 +124,7 @@ def search_youtube(query: str, max_results: int = 15, ytdlp_cmd: Optional[List[s
 
                     results.append({
                         "id": vid,
-                        "title": title or "Unknown Title",
+                        "title": sanitize_filename(title) if title else "Unknown Title",
                         "uploader": uploader or "Unknown Artist",
                         "channel": uploader or "Unknown Artist",
                         "duration": duration,
@@ -167,7 +176,7 @@ def search_youtube(query: str, max_results: int = 15, ytdlp_cmd: Optional[List[s
                         upl = v.get("uploader") or "Unknown Artist"
                         results.append({
                             "id": vid,
-                            "title": v.get("title") or "Unknown Title",
+                            "title": sanitize_filename(v.get("title") or "Unknown Title"),
                             "uploader": upl,
                             "channel": upl,
                             "duration": duration_str,
@@ -269,7 +278,7 @@ def search_playlists(query: str, max_results: int = 15) -> List[Dict[str, Any]]:
                 seen.add(pid)
                 results.append({
                     "id": pid,
-                    "title": title,
+                    "title": sanitize_filename(title),
                     "channel": channel or "YouTube",
                     "uploader": channel or "YouTube",
                     "video_count": count_str or "Full Playlist",
@@ -295,7 +304,7 @@ def search_playlists(query: str, max_results: int = 15) -> List[Dict[str, Any]]:
                 seen.add(pid)
                 results.append({
                     "id": pid,
-                    "title": title,
+                    "title": sanitize_filename(title),
                     "channel": channel or "YouTube",
                     "uploader": channel or "YouTube",
                     "video_count": count_str or "Full Playlist",
@@ -367,7 +376,7 @@ def extract_playlist_info(playlist_url: str, ytdlp_cmd: Optional[List[str]] = No
             vid = e.get("id")
             if not vid:
                 continue
-            title = e.get("title") or f"Track {vid}"
+            title = sanitize_filename(e.get("title") or f"Track {vid}")
             uploader = e.get("uploader") or e.get("channel") or ""
             duration_sec = e.get("duration")
             duration_str = ""
@@ -392,7 +401,7 @@ def extract_playlist_info(playlist_url: str, ytdlp_cmd: Optional[List[str]] = No
         return {
             "success": True,
             "id": playlist_id,
-            "title": playlist_title,
+            "title": sanitize_filename(playlist_title),
             "count": len(items),
             "items": items
         }
