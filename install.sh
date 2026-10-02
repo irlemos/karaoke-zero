@@ -595,7 +595,35 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         fi
     fi
 
-    # 10.2 Disable swap paging on flash storage
+    # 10.2 Disable disk-based logging daemons (rsyslog, logrotate) and mount /var/log as tmpfs
+    log_info "Disabling disk-based logging daemons (rsyslog, logrotate)..."
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl disable --now rsyslog.service logrotate.timer logrotate.service 2>/dev/null || true
+        systemctl mask rsyslog.service logrotate.timer logrotate.service 2>/dev/null || true
+    fi
+    rm -rf /var/log/journal 2>/dev/null || true
+
+    if [[ -f /etc/fstab ]] && ! grep -qs "^tmpfs[[:space:]]\+/var/log" /etc/fstab; then
+        log_info "Configuring in-memory tmpfs mount for /var/log in /etc/fstab..."
+        echo "tmpfs /var/log tmpfs defaults,noatime,nosuid,nodev,mode=0755,size=16M 0 0" >> /etc/fstab
+    fi
+
+    # 10.3 Disable automatic background updates and indexing services
+    log_info "Disabling automatic background updates (apt-daily, unattended-upgrades, man-db)..."
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl disable --now apt-daily.timer apt-daily.service apt-daily-upgrade.timer apt-daily-upgrade.service unattended-upgrades.service packagekit.service man-db.timer man-db.service e2scrub_all.timer 2>/dev/null || true
+        systemctl mask apt-daily.timer apt-daily.service apt-daily-upgrade.timer apt-daily-upgrade.service unattended-upgrades.service packagekit.service man-db.timer man-db.service e2scrub_all.timer 2>/dev/null || true
+    fi
+
+    mkdir -p /etc/apt/apt.conf.d 2>/dev/null || true
+    cat << EOF > /etc/apt/apt.conf.d/20auto-upgrades
+APT::Periodic::Update-Package-Lists "0";
+APT::Periodic::Download-Upgradeable-Packages "0";
+APT::Periodic::AutocleanInterval "0";
+APT::Periodic::Unattended-Upgrade "0";
+EOF
+
+    # 10.4 Disable swap paging on flash storage
     if command -v dphys-swapfile >/dev/null 2>&1; then
         log_info "Disabling flash swap file to prevent MicroSD wear..."
         dphys-swapfile swapoff 2>/dev/null || true
@@ -604,7 +632,7 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         fi
     fi
 
-    # 10.3 Tune rootfs in /etc/fstab for flash protection and write aggregation
+    # 10.5 Tune rootfs in /etc/fstab for flash protection and write aggregation
     if [[ -f /etc/fstab ]] && grep -qE '[[:space:]]/[[:space:]]' /etc/fstab; then
         log_info "Applying noatime,commit=60,errors=remount-ro to rootfs in /etc/fstab..."
         awk '{
@@ -616,6 +644,8 @@ if [[ "${DRY_RUN}" != "true" ]]; then
             print $0
         }' /etc/fstab > /tmp/fstab.tmp 2>/dev/null && mv /tmp/fstab.tmp /etc/fstab || true
     fi
+else
+    log_info "[DRY-RUN] Would configure volatile journald, mount /var/log as tmpfs, disable rsyslog/logrotate, mask apt auto-upgrades/unattended-upgrades, and disable swap."
 fi
 
 # ------------------------------------------------------------------------------

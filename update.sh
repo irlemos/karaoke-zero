@@ -291,6 +291,28 @@ if [[ "${DRY_RUN}" != "true" ]]; then
             systemctl restart systemd-journald 2>/dev/null || true
         fi
 
+        # Disable disk-based logging daemons (rsyslog, logrotate) and mount /var/log as tmpfs
+        systemctl disable --now rsyslog.service logrotate.timer logrotate.service 2>/dev/null || true
+        systemctl mask rsyslog.service logrotate.timer logrotate.service 2>/dev/null || true
+        rm -rf /var/log/journal 2>/dev/null || true
+
+        if [[ -f /etc/fstab ]] && ! grep -qs "^tmpfs[[:space:]]\+/var/log" /etc/fstab; then
+            echo "tmpfs /var/log tmpfs defaults,noatime,nosuid,nodev,mode=0755,size=16M 0 0" >> /etc/fstab
+        fi
+
+        # Disable automatic background updates and indexing services
+        systemctl disable --now apt-daily.timer apt-daily.service apt-daily-upgrade.timer apt-daily-upgrade.service unattended-upgrades.service packagekit.service man-db.timer man-db.service e2scrub_all.timer 2>/dev/null || true
+        systemctl mask apt-daily.timer apt-daily.service apt-daily-upgrade.timer apt-daily-upgrade.service unattended-upgrades.service packagekit.service man-db.timer man-db.service e2scrub_all.timer 2>/dev/null || true
+
+        if [[ -d /etc/apt/apt.conf.d ]]; then
+            cat << EOF > /etc/apt/apt.conf.d/20auto-upgrades
+APT::Periodic::Update-Package-Lists "0";
+APT::Periodic::Download-Upgradeable-Packages "0";
+APT::Periodic::AutocleanInterval "0";
+APT::Periodic::Unattended-Upgrade "0";
+EOF
+        fi
+
         # Disable swap paging on flash storage
         if command -v dphys-swapfile >/dev/null 2>&1; then
             dphys-swapfile swapoff 2>/dev/null || true

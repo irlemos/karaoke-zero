@@ -205,11 +205,19 @@ test_zero_write_and_power_loss_hardening() {
     grep -q "dphys-swapfile swapoff" "${INSTALLER}" || return 1
     grep -q "errors=remount-ro" "${INSTALLER}" || return 1
     grep -q 'DATA_DIR}/wifi' "${INSTALLER}" || return 1
+    grep -q "mask rsyslog.service" "${INSTALLER}" || return 1
+    grep -q "mask apt-daily.timer" "${INSTALLER}" || return 1
+    grep -q "20auto-upgrades" "${INSTALLER}" || return 1
+    grep -q "/var/log tmpfs" "${INSTALLER}" || return 1
 
-    # Check update.sh contains fsck.repair=yes, Storage=volatile, and dphys-swapfile
+    # Check update.sh contains fsck.repair=yes, Storage=volatile, dphys-swapfile, rsyslog, and apt-daily
     grep -q "fsck.repair=yes" "${PROJECT_ROOT}/update.sh" || return 1
     grep -q "Storage=volatile" "${PROJECT_ROOT}/update.sh" || return 1
     grep -q "dphys-swapfile swapoff" "${PROJECT_ROOT}/update.sh" || return 1
+    grep -q "mask rsyslog.service" "${PROJECT_ROOT}/update.sh" || return 1
+    grep -q "mask apt-daily.timer" "${PROJECT_ROOT}/update.sh" || return 1
+    grep -q "20auto-upgrades" "${PROJECT_ROOT}/update.sh" || return 1
+    grep -q "/var/log tmpfs" "${PROJECT_ROOT}/update.sh" || return 1
 }
 
 echo "==================================================================="
