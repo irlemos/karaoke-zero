@@ -310,14 +310,19 @@ if [[ "${STORAGE_TYPE}" == "external_hd" ]]; then
             fi
         fi
 
-        # Add fstab entry with automount, nofail, and generous timeout
-        FSTAB_ENTRY="${FSTAB_TARGET} ${MOUNT_POINT} auto defaults,noatime,nofail,x-systemd.automount,x-systemd.device-timeout=30 0 2"
+        # Add fstab entry with automount, nofail, errors=remount-ro, and generous timeout
+        FSTAB_ENTRY="${FSTAB_TARGET} ${MOUNT_POINT} auto defaults,noatime,nofail,x-systemd.automount,x-systemd.device-timeout=30,errors=remount-ro 0 2"
         if ! grep -qs "${MOUNT_POINT}" /etc/fstab; then
             log_info "Adding ${MOUNT_POINT} (${FSTAB_TARGET}) to /etc/fstab with x-systemd.automount..."
             echo "${FSTAB_ENTRY}" >> /etc/fstab
         else
             log_info "Updating existing ${MOUNT_POINT} entry in /etc/fstab..."
             sed -i "s|.*[[:space:]]${MOUNT_POINT}[[:space:]].*|${FSTAB_ENTRY}|" /etc/fstab
+        fi
+
+        # Disable periodic count/time-based fsck delays on external ext4 partitions
+        if [[ "${STORAGE_DEVICE}" =~ ^/dev/ ]]; then
+            tune2fs -c 0 -i 0 "${STORAGE_DEVICE}" 2>/dev/null || true
         fi
 
         if command -v systemctl >/dev/null 2>&1; then
@@ -329,9 +334,10 @@ if [[ "${STORAGE_TYPE}" == "external_hd" ]]; then
             mount "${MOUNT_POINT}" || log_warn "Could not mount ${STORAGE_DEVICE} to ${MOUNT_POINT}. Will mount on next reboot or when drive is plugged in."
         fi
 
-        mkdir -p "${SONGS_DIR}" "${DATA_DIR}" "${MEDIA_DIR}"
+        mkdir -p "${SONGS_DIR}" "${DATA_DIR}" "${DATA_DIR}/wifi" "${MEDIA_DIR}"
         chown -R "${APP_USER}:${APP_USER}" "${MOUNT_POINT}" 2>/dev/null || true
         chmod -R 777 "${MOUNT_POINT}" || true
+        chmod 700 "${DATA_DIR}/wifi" 2>/dev/null || true
     fi
 else
     SONGS_DIR="${SD_CARD_STORAGE_PATH}/songs"
@@ -560,8 +566,8 @@ if [[ "${SUPPRESS_FB_CURSOR}" == "true" && "${DRY_RUN}" != "true" ]]; then
             log_info "Disabling blinking console cursor on framebuffer..."
             sed -i '$ s/$/ consoleblank=0 vt.global_cursor_default=0/' "${BOOT_CMDLINE}"
         fi
-        # Suppress boot text and kernel logs so transitions stay pitch black
-        for opt in "quiet" "loglevel=3" "logo.nologo"; do
+        # Suppress boot text and kernel logs, and configure automated non-interactive fsck on power cut
+        for opt in "quiet" "loglevel=3" "logo.nologo" "fsck.repair=yes" "fsck.mode=auto"; do
             if ! grep -q "${opt}" "${BOOT_CMDLINE}"; then
                 sed -i "$ s/$/ ${opt}/" "${BOOT_CMDLINE}"
             fi
@@ -570,13 +576,56 @@ if [[ "${SUPPRESS_FB_CURSOR}" == "true" && "${DRY_RUN}" != "true" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 10. Fallback & Active Network Provisioning (NetworkManager Keyfiles)
+# 10. Zero-Write Rootfs & Power-Loss Protection (Journald, Swap, Fstab)
+# ------------------------------------------------------------------------------
+if [[ "${DRY_RUN}" != "true" ]]; then
+    # 10.1 Direct systemd logs to volatile RAM (tmpfs) to protect MicroSD card
+    if [[ -f /etc/systemd/journald.conf ]]; then
+        log_info "Configuring volatile in-memory journald logging (Zero-Write Rootfs)..."
+        if ! grep -q "^Storage=volatile" /etc/systemd/journald.conf; then
+            sed -i 's/^#\?Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
+        fi
+        if ! grep -q "^RuntimeMaxUse=" /etc/systemd/journald.conf; then
+            echo "RuntimeMaxUse=16M" >> /etc/systemd/journald.conf
+        else
+            sed -i 's/^#\?RuntimeMaxUse=.*/RuntimeMaxUse=16M/' /etc/systemd/journald.conf
+        fi
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl restart systemd-journald 2>/dev/null || true
+        fi
+    fi
+
+    # 10.2 Disable swap paging on flash storage
+    if command -v dphys-swapfile >/dev/null 2>&1; then
+        log_info "Disabling flash swap file to prevent MicroSD wear..."
+        dphys-swapfile swapoff 2>/dev/null || true
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl disable dphys-swapfile 2>/dev/null || true
+        fi
+    fi
+
+    # 10.3 Tune rootfs in /etc/fstab for flash protection and write aggregation
+    if [[ -f /etc/fstab ]] && grep -qE '[[:space:]]/[[:space:]]' /etc/fstab; then
+        log_info "Applying noatime,commit=60,errors=remount-ro to rootfs in /etc/fstab..."
+        awk '{
+            if ($2 == "/" && $3 ~ /^(ext4|ext3|f2fs)$/) {
+                if ($4 !~ /commit=60/) { $4 = $4 ",commit=60" }
+                if ($4 !~ /noatime/) { $4 = $4 ",noatime" }
+                if ($4 !~ /errors=remount-ro/) { $4 = $4 ",errors=remount-ro" }
+            }
+            print $0
+        }' /etc/fstab > /tmp/fstab.tmp 2>/dev/null && mv /tmp/fstab.tmp /etc/fstab || true
+    fi
+fi
+
+# ------------------------------------------------------------------------------
+# 11. Fallback & Active Network Provisioning (NetworkManager Keyfiles)
 # ------------------------------------------------------------------------------
 if [[ "${DRY_RUN}" != "true" ]]; then
     NM_DIR="/etc/NetworkManager/system-connections"
     mkdir -p "${NM_DIR}"
 
-    # 9.1 Provision Fallback Admin Hotspot (Priority 100)
+    # 11.1 Provision Fallback Admin Hotspot (Priority 100)
     if [[ -n "${ADMIN_WIFI_SSID}" ]]; then
         log_info "Provisioning fallback Wi-Fi network '${ADMIN_WIFI_SSID}' (Priority 100)..."
         NM_FILE="${NM_DIR}/${ADMIN_WIFI_SSID}.nmconnection"
@@ -617,7 +666,7 @@ EOF
         log_success "Saved NetworkManager profile for '${ADMIN_WIFI_SSID}' (Priority 100)."
     fi
 
-    # 9.2 Migrate existing active Wi-Fi from wpa_supplicant as Venue/Home network (Priority 50)
+    # 11.2 Migrate existing active Wi-Fi from wpa_supplicant as Venue/Home network (Priority 50)
     WPA_CONF="/etc/wpa_supplicant/wpa_supplicant.conf"
     if [[ -f "${WPA_CONF}" ]]; then
         EXISTING_SSID=$(grep -E '^\s*ssid=' "${WPA_CONF}" 2>/dev/null | head -n 1 | cut -d'"' -f2 || true)
@@ -663,10 +712,26 @@ EOF
             log_success "Saved NetworkManager profile for current network '${EXISTING_SSID}' (Priority 50)."
         fi
     fi
+
+    # 11.3 Restore saved Wi-Fi profiles from external storage if reinstalling
+    if [[ "${STORAGE_TYPE}" == "external_hd" && -d "${DATA_DIR}/wifi" ]]; then
+        WIFI_COUNT=$(find "${DATA_DIR}/wifi" -maxdepth 1 -name "*.nmconnection" 2>/dev/null | wc -l)
+        if [[ ${WIFI_COUNT} -gt 0 ]]; then
+            log_info "Detected ${WIFI_COUNT} saved Wi-Fi profile(s) on external drive. Restoring to NetworkManager..."
+            for wfile in "${DATA_DIR}/wifi/"*.nmconnection; do
+                [[ -f "${wfile}" ]] || continue
+                wbase=$(basename "${wfile}")
+                cp -f "${wfile}" "${NM_DIR}/${wbase}"
+                chmod 600 "${NM_DIR}/${wbase}"
+                chown root:root "${NM_DIR}/${wbase}" 2>/dev/null || true
+            done
+            log_success "Restored ${WIFI_COUNT} Wi-Fi profile(s) from external drive."
+        fi
+    fi
 fi
 
 # ------------------------------------------------------------------------------
-# 11. Systemd Services Setup
+# 12. Systemd Services Setup
 # ------------------------------------------------------------------------------
 log_info "Registering systemd services..."
 

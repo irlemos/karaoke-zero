@@ -77,6 +77,6 @@
   "performance_and_stability_guarantees": {
     "ram_management": "mpv processes are recycled between songs to reclaim memory and GPU framebuffers; no web browser runs on the host.",
     "cpu_management": "Video decoding offloaded via DRM/KMS hardware acceleration; microphone audio is mixed in the analog domain.",
-    "sd_card_protection": "All write-intensive processes (SQLite database, yt-dlp buffers, media downloads) are stored on external USB storage. If external drive is absent or fails mount validation, boot is frozen on an alert screen to guarantee zero fallback writes or phantom files on the MicroSD card."
+    "sd_card_protection": "Zero-Write Rootfs architecture with volatile in-memory journald logging, disabled flash swap paging, rootfs mounted with noatime,commit=60,errors=remount-ro, and automated non-interactive fsck kernel recovery on dirty power cuts (fsck.repair=yes). All write-intensive processes (SQLite database in WAL mode, yt-dlp buffers, media downloads, and venue Wi-Fi credentials) are routed to external USB storage. At runtime, venue Wi-Fi credentials operate from transient RAM (/run), keeping the MicroSD card free of venue writes and preserving credentials across re-installations. If external drive is absent or unreadable, boot is frozen on an alert screen to guarantee zero fallback writes or phantom files on the MicroSD card."
   }
 }

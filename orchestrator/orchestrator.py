@@ -527,9 +527,40 @@ class OrchestratorDaemon:
                 )
                 self.display.stop(timeout=1.0)
                 self.clear_console()
+                self.apply_storage_resilience(recovery_result)
                 self._restart_services_after_storage_recovery()
                 self.state = self.STATE_BOOT
                 break
+
+    def apply_storage_resilience(self, storage_result: StorageValidationResult) -> None:
+        """
+        Applies post-mount resilience procedures:
+        1. Purges incomplete download remnants and 0-byte corrupt media files.
+        2. Enforces SQLite WAL mode and verifies database integrity.
+        3. Syncs saved Wi-Fi profiles from external storage to transient RAM (/run).
+        """
+        if not storage_result.valid or not storage_result.mount_point:
+            return
+
+        mp = storage_result.mount_point
+        try:
+            logger.info("Applying power-loss resilience and storage sanitization on %s...", mp)
+            clean_res = self.storage_validator.sanitize_storage(mp)
+            if clean_res.get("cleaned_temp", 0) > 0 or clean_res.get("cleaned_zero_byte", 0) > 0:
+                logger.info(
+                    "Cleaned %d partial files and %d corrupt 0-byte files.",
+                    clean_res.get("cleaned_temp", 0), clean_res.get("cleaned_zero_byte", 0)
+                )
+
+            db_res = self.storage_validator.verify_and_repair_sqlite(mp)
+            if db_res.get("corrupted", 0) > 0:
+                logger.warning("Detected and quarantined %d corrupted database(s).", db_res.get("corrupted", 0))
+
+            wifi_res = self.storage_validator.sync_wifi_profiles_from_storage(mp)
+            if wifi_res.get("synced", 0) > 0:
+                logger.info("Synchronized %d persistent Wi-Fi profile(s) to transient RAM.", wifi_res.get("synced", 0))
+        except Exception as e:
+            logger.error("Error during storage resilience execution: %s", e)
 
     def run(self) -> None:
         """Runs the main orchestrator daemon loop."""
@@ -548,6 +579,9 @@ class OrchestratorDaemon:
             if not self.running:
                 self.cleanup()
                 return
+
+        # Execute power-loss resilience, cleanup incomplete downloads, and sync Wi-Fi
+        self.apply_storage_resilience(storage_result)
 
         # Wait for backend and display boot progress on /dev/tty1
         self.wait_for_backend()

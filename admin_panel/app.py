@@ -802,6 +802,107 @@ def scan_wifi_networks(rescan: bool = False) -> List[Dict[str, Any]]:
     return sorted_networks
 
 
+def persist_wifi_connection_to_storage(
+    ssid: str,
+    nm_dir: str = "/etc/NetworkManager/system-connections",
+    run_nm_dir: str = "/run/NetworkManager/system-connections"
+) -> bool:
+    """
+    Persists newly configured Wi-Fi credentials (.nmconnection) to the external
+    storage drive at <mount_point>/data/wifi/ and moves the connection file from
+    /etc/NetworkManager/system-connections/ to /run/NetworkManager/system-connections/ (tmpfs RAM).
+    Guarantees zero-write protection on the MicroSD rootfs and persists Wi-Fi credentials
+    across appliance re-installations.
+    """
+    if not ssid:
+        return False
+
+    mount_point = "/mnt/external_hd/karaoke"
+    if _storage_validator:
+        cfg = _storage_validator.detect_storage_configuration()
+        mount_point = cfg.mount_point
+        if cfg.is_external:
+            is_mounted, _, is_ro, _ = _storage_validator.is_mount_active(mount_point)
+            if not is_mounted or is_ro:
+                logger.warning("External storage %s not mounted or read-only; skipping Wi-Fi backup.", mount_point)
+                return False
+
+    wifi_storage_dir = os.path.join(mount_point, "data", "wifi")
+    try:
+        os.makedirs(wifi_storage_dir, mode=0o700, exist_ok=True)
+    except OSError as e:
+        logger.error("Failed to create Wi-Fi storage directory %s: %s", wifi_storage_dir, e)
+        return False
+
+    found_file = None
+
+    # First check via nmcli -t -f NAME,FILENAME connection show
+    try:
+        proc = run_nmcli_command(["-t", "-f", "NAME,FILENAME", "connection", "show"], timeout=5)
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                if ":" in line:
+                    cname, cfile = line.split(":", 1)
+                    if cname.strip() == ssid and cfile.strip() and os.path.isfile(cfile.strip()):
+                        found_file = cfile.strip()
+                        break
+    except Exception as e:
+        logger.debug("Could not resolve connection file via nmcli: %s", e)
+
+    # Fallback search in /etc/NetworkManager/system-connections/
+    if not found_file and os.path.isdir(nm_dir):
+        try:
+            for fname in os.listdir(nm_dir):
+                if fname.startswith(ssid) and (fname.endswith(".nmconnection") or fname == ssid):
+                    fpath = os.path.join(nm_dir, fname)
+                    if os.path.isfile(fpath):
+                        found_file = fpath
+                        break
+        except Exception:
+            pass
+
+    if not found_file or not os.path.isfile(found_file):
+        logger.warning("Could not locate NetworkManager file for SSID '%s'.", ssid)
+        return False
+
+    base_name = os.path.basename(found_file)
+    if not base_name.endswith(".nmconnection"):
+        base_name = f"{base_name}.nmconnection"
+
+    target_storage_file = os.path.join(wifi_storage_dir, base_name)
+    try:
+        shutil.copy2(found_file, target_storage_file)
+        os.chmod(target_storage_file, 0o600)
+        try:
+            shutil.chown(target_storage_file, user=0, group=0)
+        except (PermissionError, LookupError):
+            pass
+        logger.info("Saved persistent Wi-Fi profile for '%s' to external storage: %s", ssid, target_storage_file)
+    except OSError as e:
+        logger.error("Failed to save Wi-Fi profile to storage: %s", e)
+        return False
+
+    # Move from /etc/ (MicroSD rootfs) to /run/ (RAM tmpfs) to enforce zero-write rootfs
+    if found_file.startswith(nm_dir):
+        try:
+            os.makedirs(run_nm_dir, mode=0o700, exist_ok=True)
+            transient_target = os.path.join(run_nm_dir, base_name)
+            shutil.copy2(found_file, transient_target)
+            os.chmod(transient_target, 0o600)
+            try:
+                shutil.chown(transient_target, user=0, group=0)
+            except (PermissionError, LookupError):
+                pass
+
+            os.remove(found_file)
+            run_nmcli_command(["connection", "reload"], timeout=5)
+            logger.info("Transferred Wi-Fi profile for '%s' from SD card to transient RAM (/run). Zero-write preserved.", ssid)
+        except Exception as e:
+            logger.warning("Could not migrate '%s' to transient RAM: %s", ssid, e)
+
+    return True
+
+
 def _async_connect_worker(ssid: str, password: Optional[str]):
     global connection_state
     time.sleep(1.0)
@@ -822,6 +923,9 @@ def _async_connect_worker(ssid: str, password: Optional[str]):
                     "connection.autoconnect-priority", "50",
                     "connection.autoconnect", "yes"
                 ], timeout=10)
+
+                # Persist Wi-Fi credentials to external storage and maintain zero-write rootfs
+                persist_wifi_connection_to_storage(ssid)
 
                 connection_state["status"] = "success"
                 connection_state["message"] = f"Successfully connected to '{ssid}'!"

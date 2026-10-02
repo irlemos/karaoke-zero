@@ -514,6 +514,24 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
         mock_np.assert_not_called()
         self.assertEqual(self.daemon.state, OrchestratorDaemon.STATE_STORAGE_ERROR)
 
+    def test_apply_storage_resilience(self):
+        from storage_validator import StorageValidationResult
+        val_res = StorageValidationResult(
+            valid=True,
+            reason="Storage healthy",
+            mount_point="/mnt/external_hd/karaoke",
+            is_external_configured=True
+        )
+
+        with patch.object(self.daemon.storage_validator, "sanitize_storage", return_value={"cleaned_temp": 2, "cleaned_zero_byte": 1}) as mock_clean, \
+             patch.object(self.daemon.storage_validator, "verify_and_repair_sqlite", return_value={"checked": 1, "corrupted": 0}) as mock_db, \
+             patch.object(self.daemon.storage_validator, "sync_wifi_profiles_from_storage", return_value={"synced": 1, "profiles": ["wifi.nmconnection"]}) as mock_wifi:
+            self.daemon.apply_storage_resilience(val_res)
+            mock_clean.assert_called_once_with("/mnt/external_hd/karaoke")
+            mock_db.assert_called_once_with("/mnt/external_hd/karaoke")
+            mock_wifi.assert_called_once_with("/mnt/external_hd/karaoke")
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -16,7 +16,7 @@ KaraokeZero solves this by decoupling the playback display from the browser envi
 
 - **Direct DRM/KMS Video Playback:** Video is rendered directly to the Linux framebuffer using MPV (`mpv --vo=gpu --gpu-context=drm`), taking advantage of VideoCore hardware acceleration without desktop server overhead.
 - **Zero-Latency Microphone Architecture:** Rather than processing microphone audio through the Linux sound subsystem—which introduces latency and consumes CPU cycles—vocal audio is kept in the analog domain. Audio from HDMI output is extracted via an HDMI-to-VGA adapter's 3.5 mm jack and routed into an external multichannel analog mixer alongside physical microphones.
-- **Flash Storage Protection & Boot Guard:** Continuous disk writes quickly wear out microSD cards. KaraokeZero directs all write-intensive tasks (SQLite databases, temporary video download buffers from yt-dlp, and song files) to an external USB hard drive or SSD mounted at `/mnt/external_hd/karaoke`. If the external drive is absent, disconnected, or fails to mount at boot, startup is frozen on a dedicated warning screen in zero-write safe mode to guarantee that no phantom files or databases are created on the MicroSD card.
+- **Zero-Write Flash Storage Protection & Boot Guard:** Continuous disk writes quickly wear out microSD cards. KaraokeZero implements a Zero-Write Rootfs architecture: volatile in-memory journald logging (`Storage=volatile`), disabled flash swap paging, rootfs mounted with `noatime,commit=60,errors=remount-ro`, and kernel auto-repair on dirty power cuts (`fsck.repair=yes`). All write-intensive tasks (SQLite databases in WAL mode, temporary yt-dlp video download buffers, media files, and venue Wi-Fi credentials) are routed to an external USB hard drive or SSD mounted at `/mnt/external_hd/karaoke`. At runtime, venue Wi-Fi credentials are kept in transient RAM (`/run`), ensuring the MicroSD card remains pristine and credentials survive OS reinstalls. If the external drive is absent or fails mount validation, boot is frozen on a dedicated warning screen in safe mode to guarantee zero phantom writes on the MicroSD card.
 - **System Administration & Management Portal:** An onboard mobile-first management portal (`admin_panel`) running on port 8888 allows hosts to configure local Wi-Fi, search and download YouTube tracks in the background, toggle guest access modes (online vs. offline), customize download video quality, and manage device power safely.
 
 ---
@@ -35,10 +35,11 @@ KaraokeZero solves this by decoupling the playback display from the browser envi
          +-------------------------------+     +-----------------------+
          | External Storage              |     | Mini-HDMI to VGA      |
          | /mnt/external_hd/karaoke      |     | Active Adapter        |
-         | - SQLite persistent DB        |     +-----------------------+
+         | - SQLite persistent DB (WAL)  |     +-----------------------+
          | - Song library                |         |               |
          | - yt-dlp download cache       |      VGA Video       3.5mm Analog Audio
-         +-------------------------------+         |            (GPU Passthrough)
+         | - Persistent Wi-Fi profiles   |         |            (GPU Passthrough)
+         +-------------------------------+         |               |
                                                    v               |
                                             +-------------+        v
                                             | Monitor /   |    +----------------+

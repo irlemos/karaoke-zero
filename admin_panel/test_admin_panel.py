@@ -353,7 +353,49 @@ class TestAdminPanel(unittest.TestCase):
         self.assertEqual(results[0]["uploader"], "Singer Pro")
         self.assertEqual(results[0]["duration"], "3:45")
 
+    def test_persist_wifi_connection_to_storage(self):
+        from app import persist_wifi_connection_to_storage
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mount_point = os.path.join(tmpdir, "mnt_external_hd")
+            os.makedirs(os.path.join(mount_point, "data"), exist_ok=True)
+
+            nm_dir = os.path.join(tmpdir, "etc_nm")
+            os.makedirs(nm_dir, exist_ok=True)
+            run_nm_dir = os.path.join(tmpdir, "run_nm")
+
+            # Create mock connection file in nm_dir
+            conn_file = os.path.join(nm_dir, "VenueWifi.nmconnection")
+            with open(conn_file, "w", encoding="utf-8") as f:
+                f.write("[connection]\nid=VenueWifi\ntype=wifi\n")
+
+            mock_cfg = MagicMock(is_external=True, mount_point=mount_point)
+            with patch("app._storage_validator") as mock_val, \
+                 patch("app.run_nmcli_command") as mock_nmcli, \
+                 patch("shutil.chown"):
+                mock_val.detect_storage_configuration.return_value = mock_cfg
+                mock_val.is_mount_active.return_value = (True, "ext4", False, "/dev/sda1")
+                mock_nmcli.return_value = MagicMock(returncode=0, stdout=f"VenueWifi:{conn_file}\n")
+
+                # Test execution
+                success = persist_wifi_connection_to_storage(
+                    "VenueWifi",
+                    nm_dir=nm_dir,
+                    run_nm_dir=run_nm_dir
+                )
+                self.assertTrue(success)
+
+            saved_profile = os.path.join(mount_point, "data", "wifi", "VenueWifi.nmconnection")
+            self.assertTrue(os.path.exists(saved_profile))
+            mode = oct(os.stat(saved_profile).st_mode & 0o777)
+            self.assertEqual(mode, oct(0o600))
+
+            # Verify migrated to run_nm_dir in RAM and removed from nm_dir on SD
+            transient_file = os.path.join(run_nm_dir, "VenueWifi.nmconnection")
+            self.assertTrue(os.path.exists(transient_file))
+            self.assertFalse(os.path.exists(conn_file))
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

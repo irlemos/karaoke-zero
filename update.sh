@@ -271,11 +271,42 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         BOOT_CMDLINE="/boot/firmware/cmdline.txt"
         [[ ! -f "${BOOT_CMDLINE}" && -f "/boot/cmdline.txt" ]] && BOOT_CMDLINE="/boot/cmdline.txt"
         if [[ -f "${BOOT_CMDLINE}" ]]; then
-            for opt in "consoleblank=0" "vt.global_cursor_default=0" "quiet" "loglevel=3" "logo.nologo"; do
+            for opt in "consoleblank=0" "vt.global_cursor_default=0" "quiet" "loglevel=3" "logo.nologo" "fsck.repair=yes" "fsck.mode=auto"; do
                 if ! grep -q "${opt}" "${BOOT_CMDLINE}"; then
                     sed -i "$ s/$/ ${opt}/" "${BOOT_CMDLINE}"
                 fi
             done
+        fi
+
+        # Configure volatile journald logging to protect MicroSD from wear (Zero-Write Rootfs)
+        if [[ -f /etc/systemd/journald.conf ]]; then
+            if ! grep -q "^Storage=volatile" /etc/systemd/journald.conf; then
+                sed -i 's/^#\?Storage=.*/Storage=volatile/' /etc/systemd/journald.conf
+            fi
+            if ! grep -q "^RuntimeMaxUse=" /etc/systemd/journald.conf; then
+                echo "RuntimeMaxUse=16M" >> /etc/systemd/journald.conf
+            else
+                sed -i 's/^#\?RuntimeMaxUse=.*/RuntimeMaxUse=16M/' /etc/systemd/journald.conf
+            fi
+            systemctl restart systemd-journald 2>/dev/null || true
+        fi
+
+        # Disable swap paging on flash storage
+        if command -v dphys-swapfile >/dev/null 2>&1; then
+            dphys-swapfile swapoff 2>/dev/null || true
+            systemctl disable dphys-swapfile 2>/dev/null || true
+        fi
+
+        # Tune rootfs in /etc/fstab for flash protection
+        if [[ -f /etc/fstab ]] && grep -qE '[[:space:]]/[[:space:]]' /etc/fstab; then
+            awk '{
+                if ($2 == "/" && $3 ~ /^(ext4|ext3|f2fs)$/) {
+                    if ($4 !~ /commit=60/) { $4 = $4 ",commit=60" }
+                    if ($4 !~ /noatime/) { $4 = $4 ",noatime" }
+                    if ($4 !~ /errors=remount-ro/) { $4 = $4 ",errors=remount-ro" }
+                }
+                print $0
+            }' /etc/fstab > /tmp/fstab.tmp 2>/dev/null && mv /tmp/fstab.tmp /etc/fstab || true
         fi
 
         systemctl daemon-reload

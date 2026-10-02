@@ -197,6 +197,21 @@ test_orchestrator_service_decoupling() {
     grep -q "After=local-fs.target" "${PROJECT_ROOT}/systemd/orchestrator.service" || return 1
 }
 
+# Test 15: Zero-Write & Power Loss Hardening Validation
+test_zero_write_and_power_loss_hardening() {
+    # Check install.sh contains fsck.repair=yes, Storage=volatile, dphys-swapfile, and wifi restore
+    grep -q "fsck.repair=yes" "${INSTALLER}" || return 1
+    grep -q "Storage=volatile" "${INSTALLER}" || return 1
+    grep -q "dphys-swapfile swapoff" "${INSTALLER}" || return 1
+    grep -q "errors=remount-ro" "${INSTALLER}" || return 1
+    grep -q 'DATA_DIR}/wifi' "${INSTALLER}" || return 1
+
+    # Check update.sh contains fsck.repair=yes, Storage=volatile, and dphys-swapfile
+    grep -q "fsck.repair=yes" "${PROJECT_ROOT}/update.sh" || return 1
+    grep -q "Storage=volatile" "${PROJECT_ROOT}/update.sh" || return 1
+    grep -q "dphys-swapfile swapoff" "${PROJECT_ROOT}/update.sh" || return 1
+}
+
 echo "==================================================================="
 echo "Running KaraokeZero Installer & Updater Test Suite"
 echo "==================================================================="
@@ -215,6 +230,7 @@ run_test "Updater prior-installation requirement check" test_updater_validation_
 run_test "Updater dry-run execution on installed system" test_updater_dry_run_success
 run_test "Storage config persistence validation" test_storage_env_persistence
 run_test "Orchestrator service decoupling validation" test_orchestrator_service_decoupling
+run_test "Zero-write & power-loss hardening validation" test_zero_write_and_power_loss_hardening
 
 echo "==================================================================="
 if [[ "${FAILED}" -eq 0 ]]; then
@@ -224,3 +240,4 @@ else
     echo "${FAILED} test(s) failed."
     exit 1
 fi
+

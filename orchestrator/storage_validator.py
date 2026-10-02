@@ -11,7 +11,10 @@ or corrupted, halting appliance startup without modifying system configurations 
 from dataclasses import dataclass, field
 import logging
 import os
+import shutil
+import sqlite3
 import subprocess
+import time
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger("Orchestrator.StorageValidator")
@@ -219,10 +222,36 @@ class StorageValidator:
 
         return False, None, False, None
 
+    def repair_filesystem_if_needed(self, device: str) -> bool:
+        """
+        Executes an automatic non-interactive repair on a dirty filesystem via fsck -y.
+        Returns True if repair completed cleanly or corrected errors.
+        """
+        if not device or not device.startswith("/dev/"):
+            return False
+        try:
+            logger.info("Executing automatic fsck repair on %s...", device)
+            proc = subprocess.run(
+                ["fsck", "-y", device],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=30
+            )
+            # fsck returncode 0 = no errors, 1 = errors corrected
+            if proc.returncode in (0, 1):
+                logger.info("fsck repair on %s completed successfully (code %d).", device, proc.returncode)
+                return True
+            logger.warning("fsck repair on %s exited with code %d.", device, proc.returncode)
+            return False
+        except Exception as e:
+            logger.debug("fsck execution error for %s: %s", device, e)
+            return False
+
     def attempt_mount_trigger(self, mount_point: str) -> None:
         """
         Attempts a non-destructive read access or mount command to trigger automount
         if x-systemd.automount is waiting on access. Does NOT modify any files.
+        If mounting fails and a block device is known, attempts automated fsck repair.
         """
         try:
             # Simple non-destructive directory list triggers systemd automount
@@ -232,12 +261,24 @@ class StorageValidator:
             pass
 
         try:
-            subprocess.run(
+            res = subprocess.run(
                 ["mount", mount_point],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=3
+                timeout=5
             )
+            # If mount command failed, check if automated fsck can fix a dirty bit
+            if res.returncode != 0:
+                config = self.detect_storage_configuration()
+                dev = config.storage_device
+                if dev and dev.startswith("/dev/") and os.path.exists(dev):
+                    if self.repair_filesystem_if_needed(dev):
+                        subprocess.run(
+                            ["mount", mount_point],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=5
+                        )
         except Exception:
             pass
 
@@ -353,3 +394,214 @@ class StorageValidator:
             is_external_configured=True,
             details={"fstype": fstype, "device": dev, "is_mounted": True}
         )
+
+    def sanitize_storage(self, mount_point: str) -> Dict[str, object]:
+        """
+        Scans storage directories for incomplete download artifacts (.part, .ytdl, .temp, .tmp)
+        and corrupted 0-byte media files left by unexpected power loss. Safely purges them so
+        playback engines and daemons do not crash or stall.
+        """
+        temp_extensions = {".part", ".ytdl", ".temp", ".tmp"}
+        media_extensions = {".mp4", ".mkv", ".webm", ".mp3", ".m4a", ".avi", ".cdg", ".zip", ".flac", ".ogg", ".wav"}
+
+        cleaned_temp = 0
+        cleaned_zero_byte = 0
+        removed_files: List[str] = []
+
+        if not mount_point or not os.path.isdir(mount_point):
+            return {"cleaned_temp": 0, "cleaned_zero_byte": 0, "removed_files": []}
+
+        search_dirs = [
+            os.path.join(mount_point, "songs"),
+            os.path.join(mount_point, "media"),
+            os.path.join(mount_point, "data"),
+        ]
+        # Also check root mount point if standard subdirectories don't exist yet
+        dirs_to_scan = [d for d in search_dirs if os.path.isdir(d)]
+        if not dirs_to_scan:
+            dirs_to_scan = [mount_point]
+
+        for base_dir in dirs_to_scan:
+            for root, _, files in os.walk(base_dir):
+                for f in files:
+                    file_path = os.path.join(root, f)
+                    lower_name = f.lower()
+                    _, ext = os.path.splitext(lower_name)
+
+                    should_remove = False
+                    is_zero_byte = False
+
+                    # Check for partial/temporary download artifacts
+                    if ext in temp_extensions or any(lower_name.endswith(te) for te in temp_extensions):
+                        should_remove = True
+                    # Check for 0-byte corrupted media files
+                    elif ext in media_extensions:
+                        try:
+                            if os.path.getsize(file_path) == 0:
+                                should_remove = True
+                                is_zero_byte = True
+                        except OSError:
+                            pass
+
+                    if should_remove:
+                        try:
+                            os.remove(file_path)
+                            removed_files.append(file_path)
+                            if is_zero_byte:
+                                cleaned_zero_byte += 1
+                                logger.warning("Purged 0-byte corrupt media artifact: %s", file_path)
+                            else:
+                                cleaned_temp += 1
+                                logger.info("Purged incomplete download artifact: %s", file_path)
+                        except OSError as e:
+                            logger.error("Failed to remove corrupted file %s: %s", file_path, e)
+
+        if removed_files:
+            logger.info(
+                "Storage sanitization completed: purged %d temp artifacts and %d 0-byte files.",
+                cleaned_temp, cleaned_zero_byte
+            )
+        return {
+            "cleaned_temp": cleaned_temp,
+            "cleaned_zero_byte": cleaned_zero_byte,
+            "removed_files": removed_files,
+        }
+
+    def verify_and_repair_sqlite(self, mount_point: str) -> Dict[str, object]:
+        """
+        Enforces crash-resilient WAL (Write-Ahead Logging) mode and verifies integrity
+        for all SQLite databases located in the persistent data directory.
+        If an unrecoverable corrupted database is detected, creates a safety backup
+        to prevent service startup crashes.
+        """
+        checked_count = 0
+        corrupted_count = 0
+        details: List[Dict[str, object]] = []
+
+        if not mount_point or not os.path.isdir(mount_point):
+            return {"checked": 0, "corrupted": 0, "details": []}
+
+        data_dir = os.path.join(mount_point, "data")
+        scan_dir = data_dir if os.path.isdir(data_dir) else mount_point
+
+        sqlite_extensions = {".db", ".sqlite", ".sqlite3"}
+
+        for root, _, files in os.walk(scan_dir):
+            for f in files:
+                lower_name = f.lower()
+                _, ext = os.path.splitext(lower_name)
+                if ext in sqlite_extensions:
+                    db_path = os.path.join(root, f)
+                    checked_count += 1
+                    try:
+                        conn = sqlite3.connect(db_path, timeout=5.0)
+                        cursor = conn.cursor()
+
+                        # Configure WAL mode and NORMAL synchronous for power-loss resilience
+                        cursor.execute("PRAGMA journal_mode=WAL;")
+                        cursor.execute("PRAGMA synchronous=NORMAL;")
+
+                        # Execute SQLite integrity check
+                        cursor.execute("PRAGMA integrity_check;")
+                        rows = cursor.fetchall()
+                        conn.commit()
+                        conn.close()
+
+                        is_healthy = len(rows) == 1 and rows[0][0] == "ok"
+                        if is_healthy:
+                            logger.debug("SQLite database %s is healthy (WAL mode enabled).", db_path)
+                            details.append({"path": db_path, "status": "ok"})
+                        else:
+                            corrupted_count += 1
+                            backup_path = f"{db_path}.corrupt.{int(time.time())}"
+                            logger.critical(
+                                "SQLite database %s is corrupted! Output: %s. Creating backup -> %s",
+                                db_path, rows, backup_path
+                            )
+                            try:
+                                shutil.copy2(db_path, backup_path)
+                            except OSError as e:
+                                logger.error("Failed to backup corrupt DB %s: %s", db_path, e)
+                            details.append({
+                                "path": db_path,
+                                "status": "corrupt",
+                                "backup": backup_path,
+                                "errors": [r[0] for r in rows if r]
+                            })
+                    except Exception as e:
+                        corrupted_count += 1
+                        backup_path = f"{db_path}.corrupt.{int(time.time())}"
+                        logger.critical("SQLite check exception on %s: %s. Creating safety backup.", db_path, e)
+                        try:
+                            shutil.copy2(db_path, backup_path)
+                        except OSError:
+                            pass
+                        details.append({"path": db_path, "status": "error", "error": str(e), "backup": backup_path})
+
+        return {
+            "checked": checked_count,
+            "corrupted": corrupted_count,
+            "details": details,
+        }
+
+    def sync_wifi_profiles_from_storage(
+        self,
+        mount_point: str,
+        run_nm_dir: str = "/run/NetworkManager/system-connections"
+    ) -> Dict[str, object]:
+        """
+        Loads saved NetworkManager Wi-Fi profiles (.nmconnection) from the persistent
+        external storage directory into /run/NetworkManager/system-connections/ (tmpfs RAM).
+        Guarantees zero writes to the MicroSD rootfs while restoring venue Wi-Fi credentials
+        across reboots and fresh appliance re-installations.
+        """
+        synced_profiles: List[str] = []
+
+        if not mount_point or not os.path.isdir(mount_point):
+            return {"synced": 0, "profiles": []}
+
+        wifi_dir = os.path.join(mount_point, "data", "wifi")
+        if not os.path.isdir(wifi_dir):
+            return {"synced": 0, "profiles": []}
+
+        try:
+            os.makedirs(run_nm_dir, mode=0o700, exist_ok=True)
+        except OSError as e:
+            logger.error("Could not ensure transient NetworkManager directory %s: %s", run_nm_dir, e)
+            return {"synced": 0, "profiles": []}
+
+        try:
+            for entry in os.listdir(wifi_dir):
+                if entry.endswith(".nmconnection"):
+                    src = os.path.join(wifi_dir, entry)
+                    dst = os.path.join(run_nm_dir, entry)
+                    if os.path.isfile(src):
+                        try:
+                            shutil.copy2(src, dst)
+                            os.chmod(dst, 0o600)
+                            # Attempt chown root:root if permitted
+                            try:
+                                shutil.chown(dst, user=0, group=0)
+                            except (PermissionError, LookupError):
+                                pass
+                            synced_profiles.append(entry)
+                            logger.info("Restored Wi-Fi profile from storage to transient RAM: %s", entry)
+                        except OSError as e:
+                            logger.error("Failed to copy Wi-Fi profile %s to %s: %s", src, dst, e)
+
+            if synced_profiles:
+                logger.info("Reloading NetworkManager connections for %d restored profile(s)...", len(synced_profiles))
+                subprocess.run(
+                    ["nmcli", "connection", "reload"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5
+                )
+        except Exception as e:
+            logger.error("Error during Wi-Fi profile sync from storage: %s", e)
+
+        return {
+            "synced": len(synced_profiles),
+            "profiles": synced_profiles,
+        }
+
