@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# KaraokeZero Video Deduplication & Cleaner Launcher
+#
+# Standalone CLI tool to scan karaoke song folders and eliminate duplicates,
+# even with different filenames, by analyzing content hashes, YouTube IDs,
+# and audio stream fingerprints.
+# ==============================================================================
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEDUP_CLI="${SCRIPT_DIR}/tools/duplicate_cleaner/cli.py"
+
+# Terminal Colors
+BOLD='\033[1m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+if ! command -v python3 &>/dev/null; then
+  echo -e "${RED}[ERROR] Python 3 is required to run the deduplication tool.${NC}"
+  echo "Please install python3 using your package manager (e.g. sudo apt install python3)"
+  exit 1
+fi
+
+if ! command -v ffmpeg &>/dev/null; then
+  echo -e "${YELLOW}[WARNING] ffmpeg is not found in PATH.${NC}"
+  echo "Audio stream fingerprinting may be disabled. You can install ffmpeg with: sudo apt install ffmpeg"
+fi
+
+if [ ! -f "${DEDUP_CLI}" ]; then
+  echo -e "${RED}[ERROR] Could not find deduplication script at: ${DEDUP_CLI}${NC}"
+  exit 1
+fi
+
+# Run deduplication CLI passing all command-line arguments
+exec python3 "${DEDUP_CLI}" "$@"
