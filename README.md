@@ -74,16 +74,22 @@ karaoke-zero/
 ├── LICENSE                     # AGPL-3.0 License
 │
 ├── karaoke-downloader          # Standalone Linux desktop downloader launcher
+├── karaoke-dedup               # Standalone duplicate video cleaner CLI launcher
 ├── tools/                      # Desktop utilities and companion tools
-│   └── desktop_downloader/     # High-volume PC downloader web app (Zero pip deps)
-│       ├── app.py              # Standard library HTTP API & static asset server
-│       ├── download_manager.py # Background download queue & USB storage detector
-│       ├── youtube_search.py   # Innertube search & playlist inspector
-│       ├── test_downloader.py  # Unit test suite
-│       └── static/             # Rich responsive web UI
-│           ├── index.html      # Web interface layout
-│           ├── style.css       # Modern dark theme stylesheet
-│           └── app.js          # Client-side controller
+│   ├── desktop_downloader/     # High-volume PC downloader web app (Zero pip deps)
+│   │   ├── app.py              # Standard library HTTP API & static asset server
+│   │   ├── download_manager.py # Background download queue & USB storage detector
+│   │   ├── youtube_search.py   # Innertube search & playlist inspector
+│   │   ├── test_downloader.py  # Unit test suite
+│   │   └── static/             # Rich responsive web UI
+│   │       ├── index.html      # Web interface layout
+│   │       ├── style.css       # Modern dark theme stylesheet
+│   │       └── app.js          # Client-side controller
+│   │
+│   └── duplicate_cleaner/      # Video deduplication engine & interactive CLI
+│       ├── cli.py              # Interactive text-mode terminal interface
+│       ├── dedup_engine.py     # Binary hash, YouTube ID & audio fingerprint scanner
+│       └── test_dedup.py       # Unit test suite
 │
 ├── admin_panel/                # System management & administrative web portal
 │   ├── app.py                  # Flask web service, yt-dlp worker, and NetworkManager API
@@ -130,7 +136,17 @@ A standalone, zero-dependency desktop utility that runs on the user's Linux PC t
 - **Pi Zero W Hardware Acceleration Guarantee:** Enforces H.264 (AVC1) video and AAC/M4A audio in MP4 container (`--merge-output-format mp4`, `-S vcodec:h264,res,acodec:m4a`), ensuring 100% hardware decoding on the Raspberry Pi Zero without frame drops.
 - **Zero-Config Launcher:** Just run `./karaoke-downloader` from the repository root. It checks system dependencies (Python 3, ffmpeg, yt-dlp) and opens the default browser automatically.
 
-### 4. Automated Installer (`install.sh`)
+### 4. Video Deduplication & Cleaner Utility (`tools/duplicate_cleaner/`)
+A command-line text-mode tool to scan song libraries and purge duplicate videos—even when filenames differ:
+- **Deep Multi-Tier Detection:**
+  - **Exact Binary Hash (SHA-256):** Instant identification of byte-identical files with different names.
+  - **YouTube Video ID:** Matches tracks originating from the same YouTube video ID bracket `[id]`.
+  - **Audio Stream Fingerprinting:** Uses ffmpeg to decode and checksum the raw PCM audio stream, catching identical songs even across different video resolutions or remuxed containers.
+  - **Duration & Normalized Title Matching:** Compares millisecond-accurate track duration and cleaned artist/title metadata.
+- **Smart Keeper Selection:** Automatically recommends keeping the file with higher resolution (720p/1080p), optimal H.264/AAC encoding, and cleaner naming while pruning redundant duplicates.
+- **Safe Operation:** Interactive CLI prompt (`./karaoke-dedup`), dry-run inspection mode (`--scan`), and optional trash staging (`--trash`).
+
+### 5. Automated Installer (`install.sh`)
 An unattended and interactive provisioning script intended for clean installations of Raspberry Pi OS Lite (32-bit Bookworm or newer). It manages package dependencies (`mpv`, `network-manager`, `yt-dlp`, `qrencode`, `python3-pil`), configures `/etc/fstab` for the external drive, builds isolated Python virtual environments under PEP 668, configures GPU memory allocations in `/boot/firmware/config.txt`, and enables the systemd service units.
 
 ---
