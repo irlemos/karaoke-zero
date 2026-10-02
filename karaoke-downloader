@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# KaraokeZero Desktop Downloader Launcher
+#
+# Standalone, zero-config launcher for Linux PCs.
+# Detects required dependencies, assists with installation if missing,
+# and starts the local web interface opening your default browser.
+# ==============================================================================
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN_DIR="${SCRIPT_DIR}/bin"
+
+# Terminal Colors
+BOLD='\033[1m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+echo -e "${CYAN}${BOLD}"
+echo "=========================================================="
+echo "         🎤 KaraokeZero Desktop Downloader 🎤             "
+echo "=========================================================="
+echo -e "${NC}"
+
+# Add local bin to PATH if it exists
+if [ -d "${BIN_DIR}" ]; then
+  export PATH="${BIN_DIR}:${PATH}"
+fi
+if [ -d "${HOME}/.local/bin" ]; then
+  export PATH="${HOME}/.local/bin:${PATH}"
+fi
+
+MISSING_DEPS=0
+
+# ------------------------------------------------------------------------------
+# 1. Check Python 3
+# ------------------------------------------------------------------------------
+if ! command -v python3 &>/dev/null; then
+  echo -e "${RED}[ERROR] Python 3 is not installed.${NC}"
+  MISSING_DEPS=1
+else
+  PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+  echo -e "${GREEN}✓${NC} Python 3 detected: version ${PY_VER}"
+fi
+
+# ------------------------------------------------------------------------------
+# 2. Check ffmpeg
+# ------------------------------------------------------------------------------
+if ! command -v ffmpeg &>/dev/null; then
+  echo -e "${YELLOW}[!] ffmpeg is missing.${NC} Video merging and audio conversion require ffmpeg."
+  MISSING_DEPS=1
+else
+  echo -e "${GREEN}✓${NC} ffmpeg detected: $(ffmpeg -version 2>&1 | head -n 1 | awk '{print $3}')"
+fi
+
+# ------------------------------------------------------------------------------
+# 3. Check yt-dlp (Auto-download standalone binary if missing)
+# ------------------------------------------------------------------------------
+if ! command -v yt-dlp &>/dev/null; then
+  echo -e "${YELLOW}[!] yt-dlp was not found in your system PATH.${NC}"
+  mkdir -p "${BIN_DIR}"
+  
+  if command -v curl &>/dev/null || command -v wget &>/dev/null; then
+    echo -e "${CYAN}--> Attempting to download the official standalone yt-dlp binary...${NC}"
+    YT_DLP_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+    TARGET_BIN="${BIN_DIR}/yt-dlp"
+    
+    if command -v curl &>/dev/null; then
+      curl -L -s --show-error "${YT_DLP_URL}" -o "${TARGET_BIN}" || true
+    elif command -v wget &>/dev/null; then
+      wget -q "${YT_DLP_URL}" -O "${TARGET_BIN}" || true
+    fi
+    
+    if [ -s "${TARGET_BIN}" ]; then
+      chmod +x "${TARGET_BIN}"
+      export PATH="${BIN_DIR}:${PATH}"
+      echo -e "${GREEN}✓${NC} Successfully downloaded yt-dlp standalone to ${TARGET_BIN}"
+    else
+      echo -e "${RED}[ERROR] Failed to auto-download yt-dlp.${NC}"
+      MISSING_DEPS=1
+    fi
+  else
+    MISSING_DEPS=1
+  fi
+else
+  echo -e "${GREEN}✓${NC} yt-dlp detected: $(yt-dlp --version 2>/dev/null || echo 'installed')"
+fi
+
+# ------------------------------------------------------------------------------
+# Dependency Diagnostics & Installation Help
+# ------------------------------------------------------------------------------
+if [ "${MISSING_DEPS}" -ne 0 ]; then
+  echo ""
+  echo -e "${RED}${BOLD}Some required dependencies are missing.${NC}"
+  echo "Please install them using your Linux distribution package manager:"
+  echo ""
+  echo -e "${BOLD}Ubuntu / Debian / Linux Mint:${NC}"
+  echo -e "  ${CYAN}sudo apt update && sudo apt install -y python3 ffmpeg yt-dlp${NC}"
+  echo ""
+  echo -e "${BOLD}Fedora / RHEL:${NC}"
+  echo -e "  ${CYAN}sudo dnf install -y python3 ffmpeg yt-dlp${NC}"
+  echo ""
+  echo -e "${BOLD}Arch Linux / Manjaro:${NC}"
+  echo -e "  ${CYAN}sudo pacman -S python ffmpeg yt-dlp${NC}"
+  echo ""
+  echo -e "Alternatively, you can install yt-dlp via pipx or curl:"
+  echo -e "  ${CYAN}sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && sudo chmod +x /usr/local/bin/yt-dlp${NC}"
+  echo ""
+  exit 1
+fi
+
+echo ""
+echo -e "${GREEN}${BOLD}All dependencies satisfied! Starting Desktop Downloader...${NC}"
+echo -e "${CYAN}Press Ctrl+C at any time in this terminal to stop the server.${NC}"
+echo ""
+
+# Launch Python backend (which auto-spawns browser)
+exec python3 "${SCRIPT_DIR}/desktop_downloader/app.py" "$@"

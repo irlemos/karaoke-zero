@@ -46,3 +46,6 @@ htmlcov/
 # Log files
 *.log
 
+# Local tool binaries
+bin/
+

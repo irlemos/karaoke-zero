@@ -64,6 +64,19 @@
         "6. TRACK COMPLETION: Terminate mpv, notify PiKaraoke backend, release GPU resources, and return to idle state."
       ]
     },
+    "desktop_downloader": {
+      "purpose": "Lightweight, zero-pip desktop utility allowing users to batch download high-volume karaoke tracks from YouTube directly on their Linux PC at full speed.",
+      "tech_stack": "Python 3 (standard library http.server), yt-dlp, ffmpeg, HTML5, Vanilla CSS, Vanilla JS",
+      "logic_flow": [
+        "1. Launched via ready-to-run root executable `./karaoke-downloader` with automated dependency diagnostics (Python 3, ffmpeg, yt-dlp).",
+        "2. Automatically launches user's default browser targeting local web UI on port 7777 (or next available port).",
+        "3. Auto-detects connected USB drives and external KaraokeZero drives (/media/$USER/*, /mnt/*) to save directly to the songs folder.",
+        "4. YouTube search engine parses rich metadata, channel names, durations, and high-res video thumbnails in ~250ms with zero Google API keys.",
+        "5. Supports single song search, YouTube playlist inspection & selective download, and batch plain-text song list imports.",
+        "6. Strictly enforces H.264 (AVC1) video and AAC/M4A audio in MP4 container (`--merge-output-format mp4`, `-S vcodec:h264,res,acodec:m4a`) to guarantee 100% hardware-accelerated playback on Raspberry Pi Zero W.",
+        "7. Maintains a local download archive (`download_archive.txt`) on the target drive to skip duplicates seamlessly."
+      ]
+    },
     "installer": {
       "purpose": "Automated host provisioning script for Raspberry Pi OS Lite.",
       "actions": [

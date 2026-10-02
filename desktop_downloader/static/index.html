@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KaraokeZero Desktop Downloader</title>
+  <meta name="description" content="Fast, high-performance desktop karaoke song downloader with H.264 optimization for Raspberry Pi Zero W">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Header Bar -->
+  <header class="navbar">
+    <div class="nav-brand">
+      <div class="logo-badge">
+        <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="22"/>
+          <line x1="8" y1="22" x2="16" y2="22"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="nav-title">KaraokeZero</h1>
+        <span class="nav-subtitle">Desktop Song Downloader</span>
+      </div>
+    </div>
+
+    <div class="nav-controls">
+      <!-- Storage Selector Badge -->
+      <button class="nav-btn storage-badge" id="openStorageBtn" title="Change Destination Folder">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span id="currentStorageLabel">Detecting storage...</span>
+      </button>
+
+      <!-- Quality Selector -->
+      <div class="quality-select-wrapper">
+        <select id="qualitySelect" class="quality-select" title="Default Download Quality (H.264 Pi-Ready)">
+          <option value="360">360p (Ultra Fast)</option>
+          <option value="480" selected>480p (Recommended for Pi Zero)</option>
+          <option value="720">720p (HD)</option>
+          <option value="1080">1080p (Full HD)</option>
+        </select>
+      </div>
+
+      <!-- Settings Button -->
+      <button class="icon-btn" id="openSettingsBtn" title="Application Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+
+      <!-- Queue Floating Toggle (Mobile/Small Screens) -->
+      <button class="nav-btn queue-toggle-btn" id="toggleQueueBtn">
+        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="8 17 12 21 16 17"/>
+          <line x1="12" y1="12" x2="12" y2="21"/>
+          <path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/>
+        </svg>
+        <span>Queue</span>
+        <span class="badge" id="queueBadgeCount">0</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="app-container">
+    <!-- Left Column: Search & Discovery -->
+    <section class="search-panel">
+      <!-- Search Box Area -->
+      <div class="search-card">
+        <div class="search-input-group">
+          <svg class="search-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            type="text"
+            id="searchInput"
+            class="search-input"
+            placeholder="Search karaoke songs, artists or paste YouTube video / playlist link..."
+            autocomplete="off"
+          />
+          <button id="searchBtn" class="primary-btn">
+            <span>Search</span>
+          </button>
+        </div>
+
+        <!-- Quick Import Action Bar -->
+        <div class="quick-import-bar">
+          <button id="openPlaylistModalBtn" class="pill-action-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="8" y1="6" x2="21" y2="6"/>
+              <line x1="8" y1="12" x2="21" y2="12"/>
+              <line x1="8" y1="18" x2="21" y2="18"/>
+              <line x1="3" y1="6" x2="3.01" y2="6"/>
+              <line x1="3" y1="12" x2="3.01" y2="12"/>
+              <line x1="3" y1="18" x2="3.01" y2="18"/>
+            </svg>
+            <span>Import Playlist Link</span>
+          </button>
+
+          <button id="openBatchModalBtn" class="pill-action-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+            <span>Paste Song List (.txt)</span>
+          </button>
+        </div>
+
+        <!-- Popular Genre Tags -->
+        <div class="tags-container">
+          <span class="tags-label">Popular:</span>
+          <button class="genre-tag" data-tag="Queen Karaoke">Queen</button>
+          <button class="genre-tag" data-tag="80s Hits Karaoke">80s Hits</button>
+          <button class="genre-tag" data-tag="Rock Classics Karaoke">Rock Classics</button>
+          <button class="genre-tag" data-tag="Pop Favorites Karaoke">Pop</button>
+          <button class="genre-tag" data-tag="MPB Karaoke">MPB</button>
+          <button class="genre-tag" data-tag="Sertanejo Karaoke">Sertanejo</button>
+          <button class="genre-tag" data-tag="Duets Karaoke">Duets</button>
+          <button class="genre-tag" data-tag="Disney Karaoke">Disney</button>
+        </div>
+      </div>
+
+      <!-- Search Results Grid Header -->
+      <div class="results-header">
+        <h2 id="resultsTitle">Recommended Songs</h2>
+        <span class="results-meta" id="resultsCount">Search for tracks above</span>
+      </div>
+
+      <!-- Loading State -->
+      <div id="searchLoader" class="loader-container hidden">
+        <div class="spinner"></div>
+        <p>Searching YouTube for high-quality karaoke tracks...</p>
+      </div>
+
+      <!-- Results Grid -->
+      <div id="resultsGrid" class="results-grid">
+        <!-- Dynamically populated cards -->
+      </div>
+    </section>
+
+    <!-- Right Column: Download Queue & History -->
+    <aside class="queue-panel" id="queuePanel">
+      <div class="queue-header">
+        <div class="queue-title-group">
+          <h2>Download Queue</h2>
+          <span class="badge" id="queuePanelBadge">0</span>
+        </div>
+        <div class="queue-actions">
+          <button id="pauseQueueBtn" class="subtle-btn" title="Pause / Resume Queue">
+            <svg id="pauseIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="6" y="4" width="4" height="16"/>
+              <rect x="14" y="4" width="4" height="16"/>
+            </svg>
+            <span id="pauseBtnText">Pause</span>
+          </button>
+          <button id="clearCompletedBtn" class="subtle-btn" title="Clear completed tasks">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+            <span>Clear</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Queue Status Cards -->
+      <div class="queue-stats-bar">
+        <div class="stat-pill"><span class="stat-dot downloading"></span> Active: <strong id="statActive">0</strong></div>
+        <div class="stat-pill"><span class="stat-dot queued"></span> Waiting: <strong id="statQueued">0</strong></div>
+        <div class="stat-pill"><span class="stat-dot completed"></span> Finished: <strong id="statCompleted">0</strong></div>
+      </div>
+
+      <!-- Active / Queue List -->
+      <div class="queue-list" id="queueList">
+        <div class="empty-queue-placeholder" id="emptyQueueMsg">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <p>No downloads in progress.</p>
+          <span>Search and click "+ Add to Queue" to begin downloading.</span>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Playlist Import Modal -->
+  <div class="modal-overlay hidden" id="playlistModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6"/>
+            <line x1="8" y1="12" x2="21" y2="12"/>
+            <line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/>
+            <line x1="3" y1="12" x2="3.01" y2="12"/>
+            <line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+          <h3>Import YouTube Playlist</h3>
+        </div>
+        <button class="close-modal-btn" id="closePlaylistModal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="search-input-group modal-input-group">
+          <input
+            type="text"
+            id="playlistUrlInput"
+            class="search-input"
+            placeholder="Paste YouTube Playlist URL (e.g. https://www.youtube.com/playlist?list=...)"
+          />
+          <button id="inspectPlaylistBtn" class="primary-btn">
+            <span>Inspect</span>
+          </button>
+        </div>
+
+        <div id="playlistLoader" class="loader-container hidden">
+          <div class="spinner"></div>
+          <p>Analyzing playlist metadata & thumbnails...</p>
+        </div>
+
+        <div id="playlistContent" class="playlist-content hidden">
+          <div class="playlist-meta-row">
+            <div>
+              <h4 id="playlistTitle">Playlist Title</h4>
+              <span id="playlistStats">0 tracks found</span>
+            </div>
+            <div class="playlist-select-actions">
+              <button id="selectAllPlaylistBtn" class="text-link-btn">Select All</button>
+              <button id="deselectAllPlaylistBtn" class="text-link-btn">Deselect All</button>
+            </div>
+          </div>
+
+          <div class="playlist-items-list" id="playlistItemsList">
+            <!-- Dynamically populated playlist tracks with checkboxes and thumbnails -->
+          </div>
+
+          <div class="modal-footer">
+            <button id="cancelPlaylistBtn" class="secondary-btn">Cancel</button>
+            <button id="enqueuePlaylistBtn" class="primary-btn">
+              <span>Download Selected (<span id="selectedPlaylistCount">0</span>)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Batch Text Import Modal -->
+  <div class="modal-overlay hidden" id="batchModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+          <h3>Batch Song List Import</h3>
+        </div>
+        <button class="close-modal-btn" id="closeBatchModal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <p class="modal-desc">
+          Paste song titles or YouTube URLs below (one per line). Each title will be automatically searched and enqueued:
+        </p>
+
+        <textarea
+          id="batchTextArea"
+          class="batch-textarea"
+          rows="8"
+          placeholder="Queen - Bohemian Rhapsody karaoke&#10;https://www.youtube.com/watch?v=fJ9rUzIMcZQ&#10;Raul Seixas - Metamorfose Ambulante karaoke&#10;Journey - Don't Stop Believin' karaoke"
+        ></textarea>
+
+        <div class="modal-footer">
+          <span class="batch-counter" id="batchLineCount">0 songs detected</span>
+          <button id="cancelBatchBtn" class="secondary-btn">Cancel</button>
+          <button id="enqueueBatchBtn" class="primary-btn">
+            <span>Enqueue All Songs</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Storage & Settings Modal -->
+  <div class="modal-overlay hidden" id="settingsModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <h3>Download & Storage Settings</h3>
+        </div>
+        <button class="close-modal-btn" id="closeSettingsModal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Destination Folder Section -->
+        <div class="settings-section">
+          <label class="settings-label">Destination Folder</label>
+          <p class="settings-subtext">Select a detected storage drive or type a custom directory path:</p>
+
+          <!-- Detected Drives Quick Selector -->
+          <div class="storage-drives-list" id="detectedDrivesList">
+            <!-- Dynamically populated storage drives -->
+          </div>
+
+          <div class="custom-path-group">
+            <input
+              type="text"
+              id="customOutputDirInput"
+              class="search-input"
+              placeholder="/home/user/Music/KaraokeZero"
+            />
+          </div>
+        </div>
+
+        <!-- Hardware Video Preset Section -->
+        <div class="settings-section">
+          <label class="settings-label">Hardware Profile Guarantee</label>
+          <div class="info-card">
+            <div class="info-card-header">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              <strong>Raspberry Pi Zero W Acceleration Ready</strong>
+            </div>
+            <p>
+              Downloads are encoded in <strong>H.264 (AVC1)</strong> video with <strong>AAC/M4A</strong> audio inside an MP4 container.
+              This guarantees 100% hardware-accelerated decoding on Raspberry Pi OS via MPV (vo=gpu, drm), keeping CPU usage under 5% and preventing frame drops.
+            </p>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button id="cancelSettingsBtn" class="secondary-btn">Cancel</button>
+          <button id="saveSettingsBtn" class="primary-btn">
+            <span>Save Configuration</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
