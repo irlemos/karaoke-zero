@@ -203,7 +203,11 @@ class DisplayManager:
         if success:
             self.current_media = image_path
             return True
-        return self.start_boot_screen(image_path)
+
+        # If IPC command does not respond, keep the current display active
+        # to avoid dropping the HDMI DRM master and blanking the screen.
+        logger.debug("IPC update failed; retaining active boot splash without DRM reset.")
+        return False
 
     def start_playback(self, media_target: str) -> bool:
         """

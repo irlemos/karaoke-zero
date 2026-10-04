@@ -541,6 +541,36 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
             mock_wifi.assert_called_once_with("/mnt/external_hd/karaoke")
 
 
+    def test_is_early_splash_running(self):
+        # 1. Socket exists
+        with patch("os.path.exists", return_value=True):
+            self.assertTrue(self.daemon.is_early_splash_running())
+
+        # 2. Socket missing, process running
+        with patch("os.path.exists", return_value=False):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                self.assertTrue(self.daemon.is_early_splash_running())
+
+        # 3. Neither exists
+        with patch("os.path.exists", return_value=False):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 1
+                self.assertFalse(self.daemon.is_early_splash_running())
+
+    def test_dismiss_boot_splash(self):
+        with patch("os.path.exists", side_effect=lambda p: p == "/tmp/mpv_splash.sock"), \
+             patch("socket.socket") as mock_sock, \
+             patch("subprocess.run") as mock_sub, \
+             patch("os.unlink") as mock_unlink, \
+             patch("time.sleep"):
+            mock_sub.return_value.returncode = 0
+            self.daemon.dismiss_boot_splash()
+            mock_sock.return_value.__enter__.return_value.connect.assert_called_once_with("/tmp/mpv_splash.sock")
+            self.assertGreaterEqual(mock_sub.call_count, 1)
+            mock_unlink.assert_called_once_with("/tmp/mpv_splash.sock")
+
+
 if __name__ == "__main__":
     unittest.main()
 

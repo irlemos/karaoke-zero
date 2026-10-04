@@ -519,11 +519,13 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         mkdir -p "${KARAOKEZERO_INSTALL_DIR}"
     fi
 
-    # 7.4 Copy fresh service modules
+    # 7.4 Copy fresh service modules and assets
     cp -r "${PROJECT_ROOT}/admin_panel" "${KARAOKEZERO_INSTALL_DIR}/"
     cp -r "${PROJECT_ROOT}/orchestrator" "${KARAOKEZERO_INSTALL_DIR}/"
+    cp -r "${PROJECT_ROOT}/assets" "${KARAOKEZERO_INSTALL_DIR}/"
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/admin_panel/app.py"
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/orchestrator.py"
+    chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/show_splash.sh" 2>/dev/null || true
     chown -R "${APP_USER}:${APP_USER}" "${KARAOKEZERO_INSTALL_DIR}" "${PIKARAOKE_INSTALL_DIR}" 2>/dev/null || true
 fi
 
@@ -856,6 +858,38 @@ TimeoutStopSec=10
 WantedBy=multi-user.target
 EOF
 
+    # Early Boot Splash Service (Displays boot splash via MPV DRM/KMS in first seconds of boot)
+    cat << EOF > /etc/systemd/system/karaokezero-splash.service
+[Unit]
+Description=KaraokeZero Early Boot Splash Screen
+DefaultDependencies=no
+After=local-fs.target systemd-udevd.service
+Wants=local-fs.target
+Before=basic.target multi-user.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${KARAOKEZERO_INSTALL_DIR}
+ExecStart=${KARAOKEZERO_INSTALL_DIR}/orchestrator/show_splash.sh
+StandardInput=null
+StandardOutput=null
+StandardError=journal
+Restart=no
+TimeoutStopSec=2
+
+[Install]
+WantedBy=basic.target
+EOF
+
+    # Configure non-interactive sudoers rules for appliance hardware and service control
+    mkdir -p /etc/sudoers.d
+    cat << EOF > /etc/sudoers.d/020_karaokezero
+# KaraokeZero appliance permissions for hardware display and background service orchestration
+${APP_USER} ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop karaokezero-splash.service, /usr/bin/systemctl start karaokezero-splash.service, /usr/bin/systemctl restart karaokezero-splash.service, /usr/bin/systemctl is-active karaokezero-splash.service, /usr/bin/systemctl stop pikaraoke.service, /usr/bin/systemctl restart pikaraoke.service, /usr/bin/systemctl stop admin_panel.service, /usr/bin/systemctl restart admin_panel.service, /usr/bin/pkill, /bin/systemctl, /usr/bin/systemctl
+EOF
+    chmod 0440 /etc/sudoers.d/020_karaokezero 2>/dev/null || true
+
     # Configure dynamic console issue banner with appliance access info
     cat << EOF > /etc/issue
 ===================================================================
@@ -874,7 +908,7 @@ EOF
 
     systemctl daemon-reload
     log_info "Enabling KaraokeZero services for auto-start on boot..."
-    systemctl enable admin_panel.service pikaraoke.service orchestrator.service
+    systemctl enable admin_panel.service pikaraoke.service orchestrator.service karaokezero-splash.service
 
     if [[ "${ENABLE_SERVICES_NOW}" == "true" ]]; then
         log_info "Starting KaraokeZero appliance services..."

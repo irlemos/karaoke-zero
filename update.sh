@@ -208,11 +208,12 @@ fi
 log_info "Updating application modules in ${KARAOKEZERO_INSTALL_DIR}..."
 
 if [[ "${DRY_RUN}" != "true" ]]; then
-    # Copy updated admin_panel and orchestrator modules
+    # Copy updated admin_panel, orchestrator, and assets modules
     mkdir -p "${KARAOKEZERO_INSTALL_DIR}"
-    rm -rf "${KARAOKEZERO_INSTALL_DIR}/admin_panel" "${KARAOKEZERO_INSTALL_DIR}/orchestrator"
+    rm -rf "${KARAOKEZERO_INSTALL_DIR}/admin_panel" "${KARAOKEZERO_INSTALL_DIR}/orchestrator" "${KARAOKEZERO_INSTALL_DIR}/assets"
     cp -r "${PROJECT_ROOT}/admin_panel" "${KARAOKEZERO_INSTALL_DIR}/"
     cp -r "${PROJECT_ROOT}/orchestrator" "${KARAOKEZERO_INSTALL_DIR}/"
+    cp -r "${PROJECT_ROOT}/assets" "${KARAOKEZERO_INSTALL_DIR}/"
 
     # Restore preserved configurations (settings.json, custom credentials, etc.)
     if [[ -d "${CFG_BACKUP_DIR}${KARAOKEZERO_INSTALL_DIR}" ]]; then
@@ -222,6 +223,7 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     # Set executable permissions
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/admin_panel/app.py" 2>/dev/null || true
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/orchestrator.py" 2>/dev/null || true
+    chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/show_splash.sh" 2>/dev/null || true
 
     # Fix ownership
     if id "${APP_USER}" >/dev/null 2>&1; then
@@ -229,7 +231,7 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     fi
     log_success "Application modules updated successfully."
 else
-    log_info "[DRY-RUN] Would update admin_panel and orchestrator directories and restore configurations."
+    log_info "[DRY-RUN] Would update admin_panel, orchestrator, and assets directories and restore configurations."
 fi
 rm -rf "${CFG_BACKUP_DIR}"
 
@@ -245,6 +247,9 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         fi
         if [[ -f "${PROJECT_ROOT}/systemd/orchestrator.service" ]]; then
             cp "${PROJECT_ROOT}/systemd/orchestrator.service" /etc/systemd/system/
+        fi
+        if [[ -f "${PROJECT_ROOT}/systemd/karaokezero-splash.service" ]]; then
+            cp "${PROJECT_ROOT}/systemd/karaokezero-splash.service" /etc/systemd/system/
         fi
 
         # Remove obsolete wifi_manager.service if still present on system
@@ -342,8 +347,16 @@ EOF
             }' /etc/fstab > /tmp/fstab.tmp 2>/dev/null && mv /tmp/fstab.tmp /etc/fstab || true
         fi
 
+        # Configure non-interactive sudoers rules for appliance hardware and service control
+        mkdir -p /etc/sudoers.d
+        cat << EOF > /etc/sudoers.d/020_karaokezero
+# KaraokeZero appliance permissions for hardware display and background service orchestration
+${APP_USER} ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop karaokezero-splash.service, /usr/bin/systemctl start karaokezero-splash.service, /usr/bin/systemctl restart karaokezero-splash.service, /usr/bin/systemctl is-active karaokezero-splash.service, /usr/bin/systemctl stop pikaraoke.service, /usr/bin/systemctl restart pikaraoke.service, /usr/bin/systemctl stop admin_panel.service, /usr/bin/systemctl restart admin_panel.service, /usr/bin/pkill, /bin/systemctl, /usr/bin/systemctl
+EOF
+        chmod 0440 /etc/sudoers.d/020_karaokezero 2>/dev/null || true
+
         systemctl daemon-reload
-        systemctl enable admin_panel.service orchestrator.service pikaraoke.service 2>/dev/null || true
+        systemctl enable admin_panel.service orchestrator.service pikaraoke.service karaokezero-splash.service 2>/dev/null || true
         log_success "Systemd services and display settings updated and reloaded."
     fi
 else

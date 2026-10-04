@@ -8,9 +8,11 @@ and dynamic QR code generation on Raspberry Pi Zero W without X11/Chromium.
 """
 
 import argparse
+import json
 import logging
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -358,6 +360,86 @@ class OrchestratorDaemon:
                     self.display.set_pause(is_paused)
                     self.last_pause_state = is_paused
 
+    def is_early_splash_running(self) -> bool:
+        """
+        Returns True if the early boot splash service or an external mpv splash process
+        is currently holding the DRM display.
+        """
+        splash_sock = "/tmp/mpv_splash.sock"
+        if os.path.exists(splash_sock):
+            return True
+        try:
+            res = subprocess.run(
+                ["pgrep", "-f", "boot_splash.png"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=1
+            )
+            return res.returncode == 0
+        except Exception:
+            return False
+
+    def dismiss_boot_splash(self) -> None:
+        """
+        Gracefully dismisses the early boot splash service (karaokezero-splash.service)
+        releasing the DRM/KMS hardware display before launching the idle screen or error screens.
+        """
+        logger.info("Dismissing early boot splash screen...")
+        splash_sock = "/tmp/mpv_splash.sock"
+        if os.path.exists(splash_sock):
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                    client.settimeout(0.5)
+                    client.connect(splash_sock)
+                    payload = json.dumps({"command": ["quit"]}) + "\n"
+                    client.sendall(payload.encode("utf-8"))
+            except Exception as e:
+                logger.debug("IPC quit to splash note: %s", e)
+
+        # Stop systemd splash service if active (direct or via non-interactive sudo)
+        try:
+            res = subprocess.run(
+                ["systemctl", "stop", "karaokezero-splash.service"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=1
+            )
+            if res.returncode != 0:
+                subprocess.run(
+                    ["sudo", "-n", "systemctl", "stop", "karaokezero-splash.service"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=1
+                )
+        except Exception:
+            pass
+
+        # Cleanup process and socket
+        try:
+            res = subprocess.run(
+                ["pkill", "-f", "boot_splash.png"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=1
+            )
+            if res.returncode != 0:
+                subprocess.run(
+                    ["sudo", "-n", "pkill", "-f", "boot_splash.png"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=1
+                )
+        except Exception:
+            pass
+
+        if os.path.exists(splash_sock):
+            try:
+                os.unlink(splash_sock)
+            except OSError:
+                pass
+
+        time.sleep(0.3)
+
     def write_console_status(self, message: str, tty_device: str = "/dev/tty1") -> None:
         """
         Logs appliance status and guarantees local console (/dev/tty1) remains pitch black.
@@ -370,7 +452,6 @@ class OrchestratorDaemon:
         """
         Waits for PiKaraoke web service to become operational while outputting status
         both graphically via MPV DRM/KMS and keeping the local HDMI console (/dev/tty1) clean.
-        Enforces min_display_seconds so the boot splash and progress bar are always seen.
         """
         logger.info("Awaiting PiKaraoke service readiness at %s...", self.pikaraoke_url)
         start_time = time.time()
@@ -378,40 +459,31 @@ class OrchestratorDaemon:
         # Ensure HDMI console is clean and pitch black before any initial screen
         self.clear_console()
 
-        # Render initial boot/startup screen so HDMI output is graphical from the earliest stage
         boot_screen = "/tmp/karaoke_boot_screen.png"
-        try:
-            if self.screen_generator.generate_boot_screen(
-                output_path=boot_screen,
-                status_text="Starting PiKaraoke appliance services...",
-                progress=0.25
-            ):
-                if not self.display.is_running() or self.display.current_mode != "boot":
-                    self.display.start_boot_screen(boot_screen)
-                else:
-                    self.display.update_boot_screen(boot_screen)
-        except Exception as e:
-            logger.debug("Initial graphical boot screen note: %s", e)
+        has_early_splash = self.is_early_splash_running()
+
+        # If early splash service is not running, spawn fallback graphical splash
+        if not has_early_splash:
+            try:
+                if self.screen_generator.generate_boot_screen(
+                    output_path=boot_screen,
+                    status_text="Starting PiKaraoke appliance services...",
+                    progress=0.25
+                ):
+                    if not self.display.is_running() or self.display.current_mode != "boot":
+                        self.display.start_boot_screen(boot_screen)
+                    else:
+                        self.display.update_boot_screen(boot_screen)
+            except Exception as e:
+                logger.debug("Initial graphical boot screen note: %s", e)
 
         while self.running and (time.time() - start_time < max_wait_seconds):
             elapsed = time.time() - start_time
             if self.client.is_healthy():
-                # Ensure the loading screen and progress bar are clearly visible to user
-                if elapsed < min_display_seconds:
+                if not has_early_splash and elapsed < min_display_seconds:
                     time.sleep(min_display_seconds - elapsed)
 
                 self.write_console_status("PiKaraoke is ready! Starting display engine...")
-                try:
-                    if self.screen_generator.generate_boot_screen(
-                        output_path=boot_screen,
-                        status_text="Starting PiKaraoke appliance services...",
-                        progress=1.0
-                    ):
-                        self.display.update_boot_screen(boot_screen)
-                except Exception:
-                    pass
-                time.sleep(0.8)
-                # Cleanly dismiss boot splash screen so idle screen spawns cleanly on DRM/KMS
                 self.display.stop(timeout=1.0)
                 self.clear_console()
                 return True
@@ -419,19 +491,19 @@ class OrchestratorDaemon:
             elapsed_int = int(elapsed)
             self.write_console_status(f"Waiting for PiKaraoke to start (elapsed {elapsed_int}s)...")
 
-            # Progressively advance bar from 0.25 to 0.92 so user sees active progress
-            pct = min(0.92, 0.25 + (elapsed / max_wait_seconds) * 0.67)
-            try:
-                if self.screen_generator.generate_boot_screen(
-                    output_path=boot_screen,
-                    status_text="Starting PiKaraoke appliance services...",
-                    progress=pct
-                ):
-                    self.display.update_boot_screen(boot_screen)
-            except Exception:
-                pass
+            if not has_early_splash:
+                pct = min(0.92, 0.25 + (elapsed / max_wait_seconds) * 0.67)
+                try:
+                    if self.screen_generator.generate_boot_screen(
+                        output_path=boot_screen,
+                        status_text="Starting PiKaraoke appliance services...",
+                        progress=pct
+                    ):
+                        self.display.update_boot_screen(boot_screen)
+                except Exception:
+                    pass
 
-            time.sleep(2.0)
+            time.sleep(1.5)
 
         logger.warning("Timed out waiting for PiKaraoke. Proceeding with startup anyway...")
         self.display.stop(timeout=1.0)
@@ -457,17 +529,18 @@ class OrchestratorDaemon:
         logger.info("External storage configuration detected (%s -> %s). Verifying drive...",
                     config.storage_device or "USB", config.mount_point)
 
-        # Display initial boot splash early
-        boot_screen = "/tmp/karaoke_boot_screen.png"
-        try:
-            if self.screen_generator.generate_boot_screen(
-                output_path=boot_screen,
-                status_text="Starting PiKaraoke appliance services...",
-                progress=0.10
-            ):
-                self.display.start_boot_screen(boot_screen)
-        except Exception as e:
-            logger.debug("Storage boot screen notification: %s", e)
+        # Display initial boot splash early if early splash service is not active
+        if not self.is_early_splash_running():
+            boot_screen = "/tmp/karaoke_boot_screen.png"
+            try:
+                if self.screen_generator.generate_boot_screen(
+                    output_path=boot_screen,
+                    status_text="Starting PiKaraoke appliance services...",
+                    progress=0.10
+                ):
+                    self.display.start_boot_screen(boot_screen)
+            except Exception as e:
+                logger.debug("Storage boot screen notification: %s", e)
 
         start_time = time.time()
         last_result = None
@@ -521,7 +594,8 @@ class OrchestratorDaemon:
         # Stop background services so they do not attempt disk access on rootfs
         self._ensure_services_stopped_for_storage_error()
 
-        # Stop boot splash if running
+        # Dismiss early boot splash service if active and stop display manager
+        self.dismiss_boot_splash()
         self.display.stop(timeout=1.0)
         self.clear_console()
 
@@ -604,22 +678,24 @@ class OrchestratorDaemon:
         # Clear local virtual console immediately to eliminate boot logs and cursor
         self.clear_console()
 
-        # Display initial boot splash screen immediately on daemon start
-        boot_screen = "/tmp/karaoke_boot_screen.png"
-        try:
-            if self.screen_generator.generate_boot_screen(
-                output_path=boot_screen,
-                status_text="Starting PiKaraoke appliance services...",
-                progress=0.10
-            ):
-                self.display.start_boot_screen(boot_screen)
-        except Exception as e:
-            logger.debug("Initial early boot splash screen note: %s", e)
+        # Display initial boot splash screen only if early boot splash is not active
+        if not self.is_early_splash_running():
+            boot_screen = "/tmp/karaoke_boot_screen.png"
+            try:
+                if self.screen_generator.generate_boot_screen(
+                    output_path=boot_screen,
+                    status_text="Starting PiKaraoke appliance services...",
+                    progress=0.10
+                ):
+                    self.display.start_boot_screen(boot_screen)
+            except Exception as e:
+                logger.debug("Initial early boot splash screen note: %s", e)
 
         # Storage validation and boot halt guard
         storage_result = self.validate_storage_on_boot(max_wait_seconds=6.0)
         if not storage_result.valid:
             logger.critical("External storage validation FAILED on boot. Reason: %s", storage_result.reason)
+            self.dismiss_boot_splash()
             self.halt_boot_for_storage(storage_result)
             if not self.running:
                 self.cleanup()
@@ -637,6 +713,9 @@ class OrchestratorDaemon:
         self.client.on_pause_callback = self.on_pause_event
         self.client.on_play_callback = self.on_play_event
         self.client.connect_socketio()
+
+        # Dismiss early boot splash cleanly before transitioning to IDLE
+        self.dismiss_boot_splash()
 
         # Initial transition to IDLE
         self.transition_to_idle()

@@ -273,31 +273,41 @@ class ScreenGenerator:
             draw.text((self.width // 2, pill_y1 + pill_h // 2), status_text, fill=self.ACCENT_YELLOW, font=font_status, anchor="mm")
 
             # Progress bar under status pill to reassure users system is active
-            bar_w = 480
-            bar_h = 8
+            bar_w = 520
+            bar_h = 12
             bar_x1 = (self.width - bar_w) // 2
-            bar_y1 = pill_y1 + pill_h + 22
+            bar_y1 = pill_y1 + pill_h + 24
             bar_x2 = bar_x1 + bar_w
             bar_y2 = bar_y1 + bar_h
 
             # Outer track
             draw.rounded_rectangle(
                 [bar_x1, bar_y1, bar_x2, bar_y2],
-                radius=4,
+                radius=6,
                 fill=(18, 24, 38),
                 outline=self.CARD_BORDER,
                 width=1
             )
 
             # Active fill
-            p_val = 0.20 if progress is None else max(0.02, min(1.0, float(progress)))
+            p_val = 0.35 if progress is None else max(0.02, min(1.0, float(progress)))
             fill_w = int(bar_w * p_val)
-            if fill_w >= 4:
+            if fill_w >= 6:
                 draw.rounded_rectangle(
                     [bar_x1, bar_y1, bar_x1 + fill_w, bar_y2],
-                    radius=4,
+                    radius=6,
                     fill=self.ACCENT_CYAN
                 )
+
+            # Progress caption
+            font_small = self._resolve_font(15, bold=False)
+            draw.text(
+                (self.width // 2, bar_y2 + 20),
+                f"SYSTEM INITIALIZING  •  {int(p_val * 100)}%",
+                fill=self.TEXT_MUTED,
+                font=font_small,
+                anchor="mm"
+            )
 
             # Hardware specs at bottom
             footer_y = self.height - 80

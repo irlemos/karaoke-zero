@@ -1,0 +1,20 @@
+[Unit]
+Description=KaraokeZero Early Boot Splash Screen
+DefaultDependencies=no
+After=local-fs.target systemd-udevd.service
+Wants=local-fs.target
+Before=basic.target multi-user.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/karaokezero
+ExecStart=/opt/karaokezero/orchestrator/show_splash.sh
+StandardInput=null
+StandardOutput=null
+StandardError=journal
+Restart=no
+TimeoutStopSec=2
+
+[Install]
+WantedBy=basic.target
