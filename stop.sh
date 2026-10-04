@@ -69,6 +69,7 @@ PROCESS_PATTERNS=(
     "orchestrator.py"
     "admin_panel/app.py"
     "show_splash.sh"
+    "tools/splash/splash"
     "yt-dlp"
     "ffmpeg"
 )

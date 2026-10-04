@@ -519,15 +519,23 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         mkdir -p "${KARAOKEZERO_INSTALL_DIR}"
     fi
 
-    # 7.4 Copy fresh service modules and assets
+    # Build ultra-lightweight C boot splash binary if gcc is available
+    if command -v gcc >/dev/null 2>&1 && [[ -f "${PROJECT_ROOT}/tools/splash/splash.c" ]]; then
+        log_info "Building ultra-lightweight C boot splash binary..."
+        gcc -O2 -Wall -Wextra "${PROJECT_ROOT}/tools/splash/splash.c" -o "${PROJECT_ROOT}/tools/splash/splash" -lz -lm 2>/dev/null || true
+    fi
+
+    # 7.4 Copy fresh service modules, tools, and assets
     cp -r "${PROJECT_ROOT}/admin_panel" "${KARAOKEZERO_INSTALL_DIR}/"
     cp -r "${PROJECT_ROOT}/orchestrator" "${KARAOKEZERO_INSTALL_DIR}/"
     cp -r "${PROJECT_ROOT}/assets" "${KARAOKEZERO_INSTALL_DIR}/"
+    cp -r "${PROJECT_ROOT}/tools" "${KARAOKEZERO_INSTALL_DIR}/"
     cp "${PROJECT_ROOT}/stop.sh" "${KARAOKEZERO_INSTALL_DIR}/" 2>/dev/null || true
     cp "${PROJECT_ROOT}/start.sh" "${KARAOKEZERO_INSTALL_DIR}/" 2>/dev/null || true
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/admin_panel/app.py"
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/orchestrator.py"
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/show_splash.sh" 2>/dev/null || true
+    chmod +x "${KARAOKEZERO_INSTALL_DIR}/tools/splash/splash" 2>/dev/null || true
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/stop.sh" "${KARAOKEZERO_INSTALL_DIR}/start.sh" 2>/dev/null || true
     ln -sf "${KARAOKEZERO_INSTALL_DIR}/stop.sh" /usr/local/bin/karaoke-stop 2>/dev/null || true
     ln -sf "${KARAOKEZERO_INSTALL_DIR}/start.sh" /usr/local/bin/karaoke-start 2>/dev/null || true
@@ -849,11 +857,10 @@ Environment=ALSA_DEVICE=alsa/plughw:CARD=vc4hdmi,DEV=0
 WantedBy=multi-user.target
 EOF
 
-    # PiKaraoke Core Service (Runs as APP_USER with strict mount dependency on the external drive)
+    # PiKaraoke Core Service (Runs as APP_USER with network dependency; storage handled by orchestrator)
     cat << EOF > /etc/systemd/system/pikaraoke.service
 [Unit]
 Description=PiKaraoke Core Headless Background Service
-RequiresMountsFor=${MOUNT_POINT}
 After=local-fs.target network.target NetworkManager.service
 Wants=network.target
 

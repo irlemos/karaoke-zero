@@ -362,23 +362,23 @@ class OrchestratorDaemon:
 
     def is_early_splash_running(self) -> bool:
         """
-        Returns True if the early boot splash service or an external mpv splash process
-        is currently holding the DRM display.
+        Returns True if the early boot splash service or binary is currently active.
         """
         splash_sock = "/tmp/mpv_splash.sock"
         if os.path.exists(splash_sock):
             return True
-        try:
-            res = subprocess.run(
-                ["pgrep", "-f", "boot_splash"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                timeout=1
-            )
-            if res.returncode == 0:
-                return True
-        except Exception:
-            pass
+        for pattern in ["tools/splash/splash", "karaokezero-splash", "boot_splash", "show_splash.sh"]:
+            try:
+                res = subprocess.run(
+                    ["pgrep", "-f", pattern],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    timeout=1
+                )
+                if res.returncode == 0:
+                    return True
+            except Exception:
+                pass
         try:
             res = subprocess.run(
                 ["systemctl", "is-active", "--quiet", "karaokezero-splash.service"],
@@ -393,7 +393,7 @@ class OrchestratorDaemon:
     def dismiss_boot_splash(self) -> None:
         """
         Gracefully dismisses the early boot splash service (karaokezero-splash.service)
-        releasing the DRM/KMS hardware display before launching the idle screen or error screens.
+        releasing the display before launching the idle screen or error screens.
         """
         logger.info("Dismissing early boot splash screen...")
         splash_sock = "/tmp/mpv_splash.sock"
@@ -426,7 +426,7 @@ class OrchestratorDaemon:
             pass
 
         # Cleanup lingering splash processes and socket
-        for proc_pattern in ["boot_splash", "show_splash.sh"]:
+        for proc_pattern in ["tools/splash/splash", "show_splash.sh", "boot_splash"]:
             try:
                 res = subprocess.run(
                     ["pkill", "-f", proc_pattern],

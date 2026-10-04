@@ -48,4 +48,5 @@ htmlcov/
 
 # Local tool binaries
 bin/
+tools/splash/splash
 

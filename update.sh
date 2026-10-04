@@ -208,12 +208,23 @@ fi
 log_info "Updating application modules in ${KARAOKEZERO_INSTALL_DIR}..."
 
 if [[ "${DRY_RUN}" != "true" ]]; then
-    # Copy updated admin_panel, orchestrator, and assets modules
+    # Build ultra-lightweight C boot splash binary if gcc is available
+    if command -v gcc >/dev/null 2>&1 && [[ -f "${PROJECT_ROOT}/tools/splash/splash.c" ]]; then
+        log_info "Building ultra-lightweight C boot splash binary..."
+        gcc -O2 -Wall -Wextra "${PROJECT_ROOT}/tools/splash/splash.c" -o "${PROJECT_ROOT}/tools/splash/splash" -lz -lm 2>/dev/null || true
+    fi
+
+    if [[ -f "${PROJECT_ROOT}/tools/splash/generate_bg.py" && (! -f "${PROJECT_ROOT}/assets/splash_bg.bin" || ! -s "${PROJECT_ROOT}/assets/splash_bg.bin") ]]; then
+        python3 "${PROJECT_ROOT}/tools/splash/generate_bg.py" "${PROJECT_ROOT}/assets/splash_bg.bin" 2>/dev/null || true
+    fi
+
+    # Copy updated admin_panel, orchestrator, tools, and assets modules
     mkdir -p "${KARAOKEZERO_INSTALL_DIR}"
-    rm -rf "${KARAOKEZERO_INSTALL_DIR}/admin_panel" "${KARAOKEZERO_INSTALL_DIR}/orchestrator" "${KARAOKEZERO_INSTALL_DIR}/assets"
+    rm -rf "${KARAOKEZERO_INSTALL_DIR}/admin_panel" "${KARAOKEZERO_INSTALL_DIR}/orchestrator" "${KARAOKEZERO_INSTALL_DIR}/assets" "${KARAOKEZERO_INSTALL_DIR}/tools"
     cp -r "${PROJECT_ROOT}/admin_panel" "${KARAOKEZERO_INSTALL_DIR}/"
     cp -r "${PROJECT_ROOT}/orchestrator" "${KARAOKEZERO_INSTALL_DIR}/"
     cp -r "${PROJECT_ROOT}/assets" "${KARAOKEZERO_INSTALL_DIR}/"
+    cp -r "${PROJECT_ROOT}/tools" "${KARAOKEZERO_INSTALL_DIR}/"
     cp "${PROJECT_ROOT}/stop.sh" "${KARAOKEZERO_INSTALL_DIR}/" 2>/dev/null || true
     cp "${PROJECT_ROOT}/start.sh" "${KARAOKEZERO_INSTALL_DIR}/" 2>/dev/null || true
 
@@ -226,6 +237,7 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/admin_panel/app.py" 2>/dev/null || true
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/orchestrator.py" 2>/dev/null || true
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/show_splash.sh" 2>/dev/null || true
+    chmod +x "${KARAOKEZERO_INSTALL_DIR}/tools/splash/splash" 2>/dev/null || true
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/stop.sh" "${KARAOKEZERO_INSTALL_DIR}/start.sh" 2>/dev/null || true
     ln -sf "${KARAOKEZERO_INSTALL_DIR}/stop.sh" /usr/local/bin/karaoke-stop 2>/dev/null || true
     ln -sf "${KARAOKEZERO_INSTALL_DIR}/start.sh" /usr/local/bin/karaoke-start 2>/dev/null || true
@@ -341,7 +353,13 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         if [[ -f /etc/fstab ]] && grep -qs "/mnt/external_hd/karaoke" /etc/fstab; then
             log_info "Optimizing /mnt/external_hd/karaoke mount flags in /etc/fstab..."
             sed -i -E 's|(x-systemd\.device-timeout=)[0-9]+|\13|g' /etc/fstab
-            sed -i -E 's|(/mnt/external_hd/karaoke[[:space:]]+auto[[:space:]]+[^[:space:]]+[[:space:]]+)[0-9]+[[:space:]]+[0-9]+|\10 0|g' /etc/fstab
+            sed -i -E 's|([[:space:]]/mnt/external_hd/karaoke[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+)[0-9]+[[:space:]]+[0-9]+|\10 0|g' /etc/fstab
+        fi
+
+        # Decouple pikaraoke.service from blocking mount waits
+        if [[ -f /etc/systemd/system/pikaraoke.service ]] && grep -q "^RequiresMountsFor=" /etc/systemd/system/pikaraoke.service; then
+            log_info "Decoupling pikaraoke.service from blocking mount waits..."
+            sed -i '/^RequiresMountsFor=/d' /etc/systemd/system/pikaraoke.service
         fi
 
         if [[ -d /etc/apt/apt.conf.d ]]; then
