@@ -570,6 +570,18 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
             self.assertGreaterEqual(mock_sub.call_count, 1)
             mock_unlink.assert_called_once_with("/tmp/mpv_splash.sock")
 
+    def test_update_early_splash(self):
+        with patch("os.path.exists", return_value=True), \
+             patch("socket.socket") as mock_sock:
+            res = self.daemon.update_early_splash("/tmp/fake_frame.png")
+            self.assertTrue(res)
+            mock_sock.return_value.__enter__.return_value.connect.assert_called_once_with("/tmp/mpv_splash.sock")
+
+        # Missing socket or image
+        with patch("os.path.exists", return_value=False):
+            res = self.daemon.update_early_splash("/tmp/fake_frame.png")
+            self.assertFalse(res)
+
 
 if __name__ == "__main__":
     unittest.main()

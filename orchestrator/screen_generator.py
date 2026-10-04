@@ -32,6 +32,7 @@ class ScreenGenerator:
     ACCENT_CYAN = (0, 220, 255)
     ACCENT_PURPLE = (168, 85, 247)
     ACCENT_YELLOW = (250, 204, 21)
+    ACCENT_GREEN = (16, 185, 129)
     TEXT_WHITE = (255, 255, 255)
     TEXT_MUTED = (160, 175, 200)
     CARD_BG = (22, 29, 48)
@@ -230,6 +231,7 @@ class ScreenGenerator:
         self,
         output_path: Optional[str] = None,
         status_text: str = "Starting PiKaraoke appliance services...",
+        sub_status: Optional[str] = None,
         progress: Optional[float] = None
     ) -> bool:
         """
@@ -289,21 +291,23 @@ class ScreenGenerator:
                 width=1
             )
 
-            # Active fill
+            # Active fill (cyan during boot, emerald green at 100%)
             p_val = 0.35 if progress is None else max(0.02, min(1.0, float(progress)))
             fill_w = int(bar_w * p_val)
+            fill_color = self.ACCENT_GREEN if p_val >= 0.99 else self.ACCENT_CYAN
             if fill_w >= 6:
                 draw.rounded_rectangle(
                     [bar_x1, bar_y1, bar_x1 + fill_w, bar_y2],
                     radius=6,
-                    fill=self.ACCENT_CYAN
+                    fill=fill_color
                 )
 
             # Progress caption
             font_small = self._resolve_font(15, bold=False)
+            caption = sub_status or f"SYSTEM INITIALIZING  •  {int(p_val * 100)}%"
             draw.text(
                 (self.width // 2, bar_y2 + 20),
-                f"SYSTEM INITIALIZING  •  {int(p_val * 100)}%",
+                caption,
                 fill=self.TEXT_MUTED,
                 font=font_small,
                 anchor="mm"

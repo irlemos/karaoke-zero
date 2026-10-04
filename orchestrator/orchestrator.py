@@ -440,6 +440,25 @@ class OrchestratorDaemon:
 
         time.sleep(0.3)
 
+    def update_early_splash(self, image_path: str) -> bool:
+        """
+        Sends an IPC command to the early splash MPV instance to update the displayed frame.
+        Returns True if the command was successfully delivered.
+        """
+        splash_sock = "/tmp/mpv_splash.sock"
+        if not os.path.exists(splash_sock) or not os.path.exists(image_path):
+            return False
+
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.settimeout(0.5)
+                client.connect(splash_sock)
+                payload = json.dumps({"command": ["loadfile", image_path, "replace"]}) + "\n"
+                client.sendall(payload.encode("utf-8"))
+                return True
+        except Exception:
+            return False
+
     def write_console_status(self, message: str, tty_device: str = "/dev/tty1") -> None:
         """
         Logs appliance status and guarantees local console (/dev/tty1) remains pitch black.
@@ -462,6 +481,13 @@ class OrchestratorDaemon:
         boot_screen = "/tmp/karaoke_boot_screen.png"
         has_early_splash = self.is_early_splash_running()
 
+        # Advance dynamic splash to 95% stage while awaiting service health
+        if has_early_splash:
+            for p in ["/opt/karaokezero/assets/splash/splash_95.png", os.path.join(os.path.dirname(__file__), "..", "assets", "splash", "splash_95.png")]:
+                if os.path.exists(p):
+                    self.update_early_splash(p)
+                    break
+
         # If early splash service is not running, spawn fallback graphical splash
         if not has_early_splash:
             try:
@@ -480,6 +506,14 @@ class OrchestratorDaemon:
         while self.running and (time.time() - start_time < max_wait_seconds):
             elapsed = time.time() - start_time
             if self.client.is_healthy():
+                # Advance dynamic splash to 100% stage (emerald green) to visually confirm readiness
+                if has_early_splash:
+                    for p in ["/opt/karaokezero/assets/splash/splash_100.png", os.path.join(os.path.dirname(__file__), "..", "assets", "splash", "splash_100.png")]:
+                        if os.path.exists(p):
+                            self.update_early_splash(p)
+                            time.sleep(0.6)
+                            break
+
                 if not has_early_splash and elapsed < min_display_seconds:
                     time.sleep(min_display_seconds - elapsed)
 
@@ -516,6 +550,13 @@ class OrchestratorDaemon:
         Displays graphical boot splash while waiting for USB block devices to enumerate.
         If storage fails, returns StorageValidationResult with valid=False.
         """
+        # Advance dynamic splash to 90% (Verifying Storage)
+        if self.is_early_splash_running():
+            for p in ["/opt/karaokezero/assets/splash/splash_90.png", os.path.join(os.path.dirname(__file__), "..", "assets", "splash", "splash_90.png")]:
+                if os.path.exists(p):
+                    self.update_early_splash(p)
+                    break
+
         config = self.storage_validator.detect_storage_configuration()
         if not config.is_external:
             logger.info("Internal MicroSD storage mode active. Bypassing external drive checks.")
