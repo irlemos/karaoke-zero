@@ -332,7 +332,7 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
     @patch("builtins.open")
     def test_wait_for_backend(self, mock_open, mock_stop, mock_start_boot, mock_boot, mock_healthy, mock_ip):
         self.daemon.running = True
-        ready = self.daemon.wait_for_backend(max_wait_seconds=5.0)
+        ready = self.daemon.wait_for_backend(max_wait_seconds=5.0, min_display_seconds=0.0)
         self.assertTrue(ready)
         self.assertEqual(mock_healthy.call_count, 2)
         self.assertGreaterEqual(mock_boot.call_count, 1)

@@ -366,10 +366,11 @@ class OrchestratorDaemon:
         logger.info("Status: %s", message)
         self.clear_console(tty_device)
 
-    def wait_for_backend(self, max_wait_seconds: float = 120.0) -> bool:
+    def wait_for_backend(self, max_wait_seconds: float = 120.0, min_display_seconds: float = 2.5) -> bool:
         """
         Waits for PiKaraoke web service to become operational while outputting status
         both graphically via MPV DRM/KMS and keeping the local HDMI console (/dev/tty1) clean.
+        Enforces min_display_seconds so the boot splash and progress bar are always seen.
         """
         logger.info("Awaiting PiKaraoke service readiness at %s...", self.pikaraoke_url)
         start_time = time.time()
@@ -393,7 +394,12 @@ class OrchestratorDaemon:
             logger.debug("Initial graphical boot screen note: %s", e)
 
         while self.running and (time.time() - start_time < max_wait_seconds):
+            elapsed = time.time() - start_time
             if self.client.is_healthy():
+                # Ensure the loading screen and progress bar are clearly visible to user
+                if elapsed < min_display_seconds:
+                    time.sleep(min_display_seconds - elapsed)
+
                 self.write_console_status("PiKaraoke is ready! Starting display engine...")
                 try:
                     if self.screen_generator.generate_boot_screen(
@@ -404,14 +410,14 @@ class OrchestratorDaemon:
                         self.display.update_boot_screen(boot_screen)
                 except Exception:
                     pass
-                time.sleep(0.5)
+                time.sleep(0.8)
                 # Cleanly dismiss boot splash screen so idle screen spawns cleanly on DRM/KMS
                 self.display.stop(timeout=1.0)
                 self.clear_console()
                 return True
 
-            elapsed = int(time.time() - start_time)
-            self.write_console_status(f"Waiting for PiKaraoke to start (elapsed {elapsed}s)...")
+            elapsed_int = int(elapsed)
+            self.write_console_status(f"Waiting for PiKaraoke to start (elapsed {elapsed_int}s)...")
 
             # Progressively advance bar from 0.25 to 0.92 so user sees active progress
             pct = min(0.92, 0.25 + (elapsed / max_wait_seconds) * 0.67)
@@ -597,6 +603,18 @@ class OrchestratorDaemon:
 
         # Clear local virtual console immediately to eliminate boot logs and cursor
         self.clear_console()
+
+        # Display initial boot splash screen immediately on daemon start
+        boot_screen = "/tmp/karaoke_boot_screen.png"
+        try:
+            if self.screen_generator.generate_boot_screen(
+                output_path=boot_screen,
+                status_text="Starting PiKaraoke appliance services...",
+                progress=0.10
+            ):
+                self.display.start_boot_screen(boot_screen)
+        except Exception as e:
+            logger.debug("Initial early boot splash screen note: %s", e)
 
         # Storage validation and boot halt guard
         storage_result = self.validate_storage_on_boot(max_wait_seconds=6.0)

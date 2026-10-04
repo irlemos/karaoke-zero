@@ -271,6 +271,7 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         BOOT_CMDLINE="/boot/firmware/cmdline.txt"
         [[ ! -f "${BOOT_CMDLINE}" && -f "/boot/cmdline.txt" ]] && BOOT_CMDLINE="/boot/cmdline.txt"
         if [[ -f "${BOOT_CMDLINE}" ]]; then
+            sed -i 's/console=tty1/console=tty3/g' "${BOOT_CMDLINE}"
             sed -i 's/loglevel=[0-9]/loglevel=0/g' "${BOOT_CMDLINE}"
             for opt in "consoleblank=0" "vt.global_cursor_default=0" "quiet" "loglevel=0" "systemd.show_status=0" "logo.nologo" "console=tty3" "fsck.repair=yes" "fsck.mode=auto"; do
                 if ! grep -q "${opt}" "${BOOT_CMDLINE}"; then
@@ -304,6 +305,15 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         # Disable automatic background updates and indexing services
         systemctl disable --now apt-daily.timer apt-daily.service apt-daily-upgrade.timer apt-daily-upgrade.service unattended-upgrades.service packagekit.service man-db.timer man-db.service e2scrub_all.timer 2>/dev/null || true
         systemctl mask apt-daily.timer apt-daily.service apt-daily-upgrade.timer apt-daily-upgrade.service unattended-upgrades.service packagekit.service man-db.timer man-db.service e2scrub_all.timer 2>/dev/null || true
+
+        # Disable cloud-init if installed (prevents 2+ minute boot stalls, socket interaction messages, and console spam)
+        if command -v cloud-init >/dev/null 2>&1 || [[ -d /etc/cloud ]]; then
+            log_info "Disabling cloud-init to eliminate boot stalls and console spam..."
+            mkdir -p /etc/cloud
+            touch /etc/cloud/cloud-init.disabled
+            systemctl disable --now cloud-init.service cloud-init-local.service cloud-config.service cloud-final.service 2>/dev/null || true
+            systemctl mask cloud-init.service cloud-init-local.service cloud-config.service cloud-final.service 2>/dev/null || true
+        fi
 
         if [[ -d /etc/apt/apt.conf.d ]]; then
             cat << EOF > /etc/apt/apt.conf.d/20auto-upgrades

@@ -567,6 +567,7 @@ if [[ "${SUPPRESS_FB_CURSOR}" == "true" && "${DRY_RUN}" != "true" ]]; then
             sed -i '$ s/$/ consoleblank=0 vt.global_cursor_default=0/' "${BOOT_CMDLINE}"
         fi
         # Suppress boot text, kernel logs, and systemd status messages (100% Silent Boot)
+        sed -i 's/console=tty1/console=tty3/g' "${BOOT_CMDLINE}"
         sed -i 's/loglevel=[0-9]/loglevel=0/g' "${BOOT_CMDLINE}"
         for opt in "quiet" "loglevel=0" "systemd.show_status=0" "logo.nologo" "console=tty3" "fsck.repair=yes" "fsck.mode=auto"; do
             if ! grep -q "${opt}" "${BOOT_CMDLINE}"; then
@@ -644,6 +645,15 @@ EOF
             }
             print $0
         }' /etc/fstab > /tmp/fstab.tmp 2>/dev/null && mv /tmp/fstab.tmp /etc/fstab || true
+    fi
+
+    # 10.6 Disable cloud-init if installed (prevents 2+ minute boot stalls, socket interaction messages, and console spam)
+    if command -v cloud-init >/dev/null 2>&1 || [[ -d /etc/cloud ]]; then
+        log_info "Disabling cloud-init to eliminate boot stalls and console spam..."
+        mkdir -p /etc/cloud
+        touch /etc/cloud/cloud-init.disabled
+        systemctl disable --now cloud-init.service cloud-init-local.service cloud-config.service cloud-final.service 2>/dev/null || true
+        systemctl mask cloud-init.service cloud-init-local.service cloud-config.service cloud-final.service 2>/dev/null || true
     fi
 else
     log_info "[DRY-RUN] Would configure volatile journald, mount /var/log as tmpfs, disable rsyslog/logrotate, mask apt auto-upgrades/unattended-upgrades, and disable swap."
