@@ -523,9 +523,14 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     cp -r "${PROJECT_ROOT}/admin_panel" "${KARAOKEZERO_INSTALL_DIR}/"
     cp -r "${PROJECT_ROOT}/orchestrator" "${KARAOKEZERO_INSTALL_DIR}/"
     cp -r "${PROJECT_ROOT}/assets" "${KARAOKEZERO_INSTALL_DIR}/"
+    cp "${PROJECT_ROOT}/stop.sh" "${KARAOKEZERO_INSTALL_DIR}/" 2>/dev/null || true
+    cp "${PROJECT_ROOT}/start.sh" "${KARAOKEZERO_INSTALL_DIR}/" 2>/dev/null || true
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/admin_panel/app.py"
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/orchestrator.py"
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/show_splash.sh" 2>/dev/null || true
+    chmod +x "${KARAOKEZERO_INSTALL_DIR}/stop.sh" "${KARAOKEZERO_INSTALL_DIR}/start.sh" 2>/dev/null || true
+    ln -sf "${KARAOKEZERO_INSTALL_DIR}/stop.sh" /usr/local/bin/karaoke-stop 2>/dev/null || true
+    ln -sf "${KARAOKEZERO_INSTALL_DIR}/start.sh" /usr/local/bin/karaoke-start 2>/dev/null || true
     chown -R "${APP_USER}:${APP_USER}" "${KARAOKEZERO_INSTALL_DIR}" "${PIKARAOKE_INSTALL_DIR}" 2>/dev/null || true
 fi
 

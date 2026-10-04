@@ -214,6 +214,8 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     cp -r "${PROJECT_ROOT}/admin_panel" "${KARAOKEZERO_INSTALL_DIR}/"
     cp -r "${PROJECT_ROOT}/orchestrator" "${KARAOKEZERO_INSTALL_DIR}/"
     cp -r "${PROJECT_ROOT}/assets" "${KARAOKEZERO_INSTALL_DIR}/"
+    cp "${PROJECT_ROOT}/stop.sh" "${KARAOKEZERO_INSTALL_DIR}/" 2>/dev/null || true
+    cp "${PROJECT_ROOT}/start.sh" "${KARAOKEZERO_INSTALL_DIR}/" 2>/dev/null || true
 
     # Restore preserved configurations (settings.json, custom credentials, etc.)
     if [[ -d "${CFG_BACKUP_DIR}${KARAOKEZERO_INSTALL_DIR}" ]]; then
@@ -224,6 +226,9 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/admin_panel/app.py" 2>/dev/null || true
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/orchestrator.py" 2>/dev/null || true
     chmod +x "${KARAOKEZERO_INSTALL_DIR}/orchestrator/show_splash.sh" 2>/dev/null || true
+    chmod +x "${KARAOKEZERO_INSTALL_DIR}/stop.sh" "${KARAOKEZERO_INSTALL_DIR}/start.sh" 2>/dev/null || true
+    ln -sf "${KARAOKEZERO_INSTALL_DIR}/stop.sh" /usr/local/bin/karaoke-stop 2>/dev/null || true
+    ln -sf "${KARAOKEZERO_INSTALL_DIR}/start.sh" /usr/local/bin/karaoke-start 2>/dev/null || true
 
     # Fix ownership
     if id "${APP_USER}" >/dev/null 2>&1; then
