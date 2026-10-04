@@ -216,6 +216,15 @@ class TestDisplayManager(unittest.TestCase):
         mock_idle.assert_called_once_with(media_path="/tmp/boot.png")
         self.assertEqual(self.display.current_mode, "boot")
 
+    @patch.object(DisplayManager, "is_running", return_value=True)
+    @patch.object(DisplayManager, "send_ipc_command", return_value=True)
+    def test_update_boot_screen(self, mock_ipc, mock_running):
+        self.display.current_mode = "boot"
+        success = self.display.update_boot_screen("/tmp/boot_updated.png")
+        self.assertTrue(success)
+        mock_ipc.assert_called_once_with(["loadfile", "/tmp/boot_updated.png", "replace"])
+        self.assertEqual(self.display.current_media, "/tmp/boot_updated.png")
+
     @patch("subprocess.Popen")
     def test_start_playback(self, mock_popen):
         mock_proc = MagicMock()
@@ -326,8 +335,8 @@ class TestOrchestratorDaemonFSM(unittest.TestCase):
         ready = self.daemon.wait_for_backend(max_wait_seconds=5.0)
         self.assertTrue(ready)
         self.assertEqual(mock_healthy.call_count, 2)
-        mock_boot.assert_called_once()
-        mock_start_boot.assert_called_once()
+        self.assertGreaterEqual(mock_boot.call_count, 1)
+        self.assertGreaterEqual(mock_start_boot.call_count, 1)
         mock_stop.assert_called_once_with(timeout=1.0)
 
     @patch.object(NetworkWatcher, "get_ip_address", return_value="192.168.1.100")

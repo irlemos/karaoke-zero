@@ -271,7 +271,8 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         BOOT_CMDLINE="/boot/firmware/cmdline.txt"
         [[ ! -f "${BOOT_CMDLINE}" && -f "/boot/cmdline.txt" ]] && BOOT_CMDLINE="/boot/cmdline.txt"
         if [[ -f "${BOOT_CMDLINE}" ]]; then
-            for opt in "consoleblank=0" "vt.global_cursor_default=0" "quiet" "loglevel=3" "logo.nologo" "fsck.repair=yes" "fsck.mode=auto"; do
+            sed -i 's/loglevel=[0-9]/loglevel=0/g' "${BOOT_CMDLINE}"
+            for opt in "consoleblank=0" "vt.global_cursor_default=0" "quiet" "loglevel=0" "systemd.show_status=0" "logo.nologo" "console=tty3" "fsck.repair=yes" "fsck.mode=auto"; do
                 if ! grep -q "${opt}" "${BOOT_CMDLINE}"; then
                     sed -i "$ s/$/ ${opt}/" "${BOOT_CMDLINE}"
                 fi

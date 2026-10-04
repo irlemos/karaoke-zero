@@ -190,6 +190,21 @@ class DisplayManager:
             self.current_mode = "boot"
         return success
 
+    def update_boot_screen(self, image_path: str) -> bool:
+        """
+        Dynamically refreshes the boot splash screen via MPV IPC socket
+        without restarting the mpv process, eliminating screen flickering.
+        Falls back to start_boot_screen if mpv is not actively running.
+        """
+        if not self.is_running() or self.current_mode != "boot":
+            return self.start_boot_screen(image_path)
+
+        success = self.send_ipc_command(["loadfile", image_path, "replace"])
+        if success:
+            self.current_media = image_path
+            return True
+        return self.start_boot_screen(image_path)
+
     def start_playback(self, media_target: str) -> bool:
         """
         Launches hardware-accelerated playback for the active song.

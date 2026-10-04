@@ -229,10 +229,12 @@ class ScreenGenerator:
     def generate_boot_screen(
         self,
         output_path: Optional[str] = None,
-        status_text: str = "Starting PiKaraoke appliance services..."
+        status_text: str = "Starting PiKaraoke appliance services...",
+        progress: Optional[float] = None
     ) -> bool:
         """
         Renders a clean, high-resolution appliance startup splash screen during boot.
+        Optionally displays a sleek hardware-style progress bar (0.0 to 1.0).
         """
         target_path = output_path or self.output_path
 
@@ -269,6 +271,33 @@ class ScreenGenerator:
             pill_y1 = center_y + 80
             draw.rounded_rectangle([pill_x1, pill_y1, pill_x1 + pill_w, pill_y1 + pill_h], radius=16, fill=self.CARD_BG, outline=self.CARD_BORDER, width=2)
             draw.text((self.width // 2, pill_y1 + pill_h // 2), status_text, fill=self.ACCENT_YELLOW, font=font_status, anchor="mm")
+
+            # Progress bar under status pill to reassure users system is active
+            bar_w = 480
+            bar_h = 8
+            bar_x1 = (self.width - bar_w) // 2
+            bar_y1 = pill_y1 + pill_h + 22
+            bar_x2 = bar_x1 + bar_w
+            bar_y2 = bar_y1 + bar_h
+
+            # Outer track
+            draw.rounded_rectangle(
+                [bar_x1, bar_y1, bar_x2, bar_y2],
+                radius=4,
+                fill=(18, 24, 38),
+                outline=self.CARD_BORDER,
+                width=1
+            )
+
+            # Active fill
+            p_val = 0.20 if progress is None else max(0.02, min(1.0, float(progress)))
+            fill_w = int(bar_w * p_val)
+            if fill_w >= 4:
+                draw.rounded_rectangle(
+                    [bar_x1, bar_y1, bar_x1 + fill_w, bar_y2],
+                    radius=4,
+                    fill=self.ACCENT_CYAN
+                )
 
             # Hardware specs at bottom
             footer_y = self.height - 80

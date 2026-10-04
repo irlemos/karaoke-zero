@@ -378,20 +378,33 @@ class OrchestratorDaemon:
         self.clear_console()
 
         # Render initial boot/startup screen so HDMI output is graphical from the earliest stage
+        boot_screen = "/tmp/karaoke_boot_screen.png"
         try:
-            boot_screen = "/tmp/karaoke_boot_screen.png"
             if self.screen_generator.generate_boot_screen(
                 output_path=boot_screen,
-                status_text="Starting PiKaraoke appliance services..."
+                status_text="Starting PiKaraoke appliance services...",
+                progress=0.25
             ):
-                self.display.start_boot_screen(boot_screen)
+                if not self.display.is_running() or self.display.current_mode != "boot":
+                    self.display.start_boot_screen(boot_screen)
+                else:
+                    self.display.update_boot_screen(boot_screen)
         except Exception as e:
             logger.debug("Initial graphical boot screen note: %s", e)
 
         while self.running and (time.time() - start_time < max_wait_seconds):
             if self.client.is_healthy():
                 self.write_console_status("PiKaraoke is ready! Starting display engine...")
-                time.sleep(1.0)
+                try:
+                    if self.screen_generator.generate_boot_screen(
+                        output_path=boot_screen,
+                        status_text="Starting PiKaraoke appliance services...",
+                        progress=1.0
+                    ):
+                        self.display.update_boot_screen(boot_screen)
+                except Exception:
+                    pass
+                time.sleep(0.5)
                 # Cleanly dismiss boot splash screen so idle screen spawns cleanly on DRM/KMS
                 self.display.stop(timeout=1.0)
                 self.clear_console()
@@ -399,6 +412,19 @@ class OrchestratorDaemon:
 
             elapsed = int(time.time() - start_time)
             self.write_console_status(f"Waiting for PiKaraoke to start (elapsed {elapsed}s)...")
+
+            # Progressively advance bar from 0.25 to 0.92 so user sees active progress
+            pct = min(0.92, 0.25 + (elapsed / max_wait_seconds) * 0.67)
+            try:
+                if self.screen_generator.generate_boot_screen(
+                    output_path=boot_screen,
+                    status_text="Starting PiKaraoke appliance services...",
+                    progress=pct
+                ):
+                    self.display.update_boot_screen(boot_screen)
+            except Exception:
+                pass
+
             time.sleep(2.0)
 
         logger.warning("Timed out waiting for PiKaraoke. Proceeding with startup anyway...")
@@ -430,7 +456,8 @@ class OrchestratorDaemon:
         try:
             if self.screen_generator.generate_boot_screen(
                 output_path=boot_screen,
-                status_text="Verifying external storage drive..."
+                status_text="Starting PiKaraoke appliance services...",
+                progress=0.10
             ):
                 self.display.start_boot_screen(boot_screen)
         except Exception as e:

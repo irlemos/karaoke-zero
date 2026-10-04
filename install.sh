@@ -566,8 +566,9 @@ if [[ "${SUPPRESS_FB_CURSOR}" == "true" && "${DRY_RUN}" != "true" ]]; then
             log_info "Disabling blinking console cursor on framebuffer..."
             sed -i '$ s/$/ consoleblank=0 vt.global_cursor_default=0/' "${BOOT_CMDLINE}"
         fi
-        # Suppress boot text and kernel logs, and configure automated non-interactive fsck on power cut
-        for opt in "quiet" "loglevel=3" "logo.nologo" "fsck.repair=yes" "fsck.mode=auto"; do
+        # Suppress boot text, kernel logs, and systemd status messages (100% Silent Boot)
+        sed -i 's/loglevel=[0-9]/loglevel=0/g' "${BOOT_CMDLINE}"
+        for opt in "quiet" "loglevel=0" "systemd.show_status=0" "logo.nologo" "console=tty3" "fsck.repair=yes" "fsck.mode=auto"; do
             if ! grep -q "${opt}" "${BOOT_CMDLINE}"; then
                 sed -i "$ s/$/ ${opt}/" "${BOOT_CMDLINE}"
             fi
@@ -791,8 +792,8 @@ if [[ "${DRY_RUN}" != "true" ]]; then
     cat << EOF > /etc/systemd/system/orchestrator.service
 [Unit]
 Description=KaraokeZero Display & Queue Orchestrator Daemon
-After=local-fs.target network.target NetworkManager.service
-Wants=network.target
+After=local-fs.target
+Wants=local-fs.target
 
 [Service]
 Type=simple

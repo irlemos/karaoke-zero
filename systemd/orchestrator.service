@@ -1,7 +1,7 @@
 [Unit]
 Description=KaraokeZero Display & Queue Orchestrator Daemon
-After=local-fs.target network.target NetworkManager.service
-Wants=network.target
+After=local-fs.target
+Wants=local-fs.target
 
 [Service]
 Type=simple
