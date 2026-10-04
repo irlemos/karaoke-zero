@@ -310,8 +310,8 @@ if [[ "${STORAGE_TYPE}" == "external_hd" ]]; then
             fi
         fi
 
-        # Add fstab entry with automount, nofail, errors=remount-ro, and generous timeout
-        FSTAB_ENTRY="${FSTAB_TARGET} ${MOUNT_POINT} auto defaults,noatime,nofail,x-systemd.automount,x-systemd.device-timeout=30,errors=remount-ro 0 2"
+        # Add fstab entry with automount, nofail, errors=remount-ro, and fast timeout without blocking boot fsck
+        FSTAB_ENTRY="${FSTAB_TARGET} ${MOUNT_POINT} auto defaults,noatime,nofail,x-systemd.automount,x-systemd.device-timeout=3,errors=remount-ro 0 0"
         if ! grep -qs "${MOUNT_POINT}" /etc/fstab; then
             log_info "Adding ${MOUNT_POINT} (${FSTAB_TARGET}) to /etc/fstab with x-systemd.automount..."
             echo "${FSTAB_ENTRY}" >> /etc/fstab
@@ -556,6 +556,16 @@ if [[ "${CONFIGURE_BOOT_CONFIG}" == "true" && "${DRY_RUN}" != "true" ]]; then
         if ! grep -q "^disable_splash=1" "${BOOT_CONFIG}"; then
             echo "disable_splash=1" >> "${BOOT_CONFIG}"
         fi
+
+        # Eliminate firmware boot delay
+        if ! grep -q "^boot_delay=0" "${BOOT_CONFIG}"; then
+            echo "boot_delay=0" >> "${BOOT_CONFIG}"
+        fi
+
+        # Boost ARM CPU clock for first 30 seconds of boot to accelerate startup
+        if ! grep -q "^initial_turbo=" "${BOOT_CONFIG}"; then
+            echo "initial_turbo=30" >> "${BOOT_CONFIG}"
+        fi
     fi
 fi
 
@@ -571,7 +581,8 @@ if [[ "${SUPPRESS_FB_CURSOR}" == "true" && "${DRY_RUN}" != "true" ]]; then
         # Suppress boot text, kernel logs, and systemd status messages (100% Silent Boot)
         sed -i 's/console=tty1/console=tty3/g' "${BOOT_CMDLINE}"
         sed -i 's/loglevel=[0-9]/loglevel=0/g' "${BOOT_CMDLINE}"
-        for opt in "quiet" "loglevel=0" "systemd.show_status=0" "logo.nologo" "console=tty3" "fsck.repair=yes" "fsck.mode=auto"; do
+        sed -i 's/fsck.mode=auto/fsck.mode=skip/g' "${BOOT_CMDLINE}"
+        for opt in "quiet" "loglevel=0" "systemd.show_status=0" "logo.nologo" "console=tty3" "fsck.repair=yes" "fsck.mode=skip"; do
             if ! grep -q "${opt}" "${BOOT_CMDLINE}"; then
                 sed -i "$ s/$/ ${opt}/" "${BOOT_CMDLINE}"
             fi
@@ -656,6 +667,13 @@ EOF
         touch /etc/cloud/cloud-init.disabled
         systemctl disable --now cloud-init.service cloud-init-local.service cloud-config.service cloud-final.service 2>/dev/null || true
         systemctl mask cloud-init.service cloud-init-local.service cloud-config.service cloud-final.service 2>/dev/null || true
+    fi
+
+    # 10.7 Mask network-wait-online and slow system daemons to eliminate boot stalls
+    log_info "Masking network-wait-online and non-essential services to eliminate boot stalls..."
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl disable --now NetworkManager-wait-online.service systemd-networkd-wait-online.service ModemManager.service bluetooth.service hciuart.service triggerhappy.service triggerhappy.socket 2>/dev/null || true
+        systemctl mask NetworkManager-wait-online.service systemd-networkd-wait-online.service ModemManager.service bluetooth.service hciuart.service triggerhappy.service triggerhappy.socket 2>/dev/null || true
     fi
 else
     log_info "[DRY-RUN] Would configure volatile journald, mount /var/log as tmpfs, disable rsyslog/logrotate, mask apt auto-upgrades/unattended-upgrades, and disable swap."
@@ -863,9 +881,10 @@ EOF
 [Unit]
 Description=KaraokeZero Early Boot Splash Screen
 DefaultDependencies=no
-After=local-fs.target systemd-udevd.service
-Wants=local-fs.target
-Before=basic.target multi-user.target
+After=systemd-udevd.service
+Wants=systemd-udevd.service
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
 
 [Service]
 Type=simple
@@ -879,7 +898,7 @@ Restart=no
 TimeoutStopSec=2
 
 [Install]
-WantedBy=basic.target
+WantedBy=sysinit.target
 EOF
 
     # Configure non-interactive sudoers rules for appliance hardware and service control

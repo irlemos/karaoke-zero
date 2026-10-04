@@ -271,6 +271,12 @@ if [[ "${DRY_RUN}" != "true" ]]; then
             if ! grep -q "^disable_splash=1" "${BOOT_CONFIG}"; then
                 echo "disable_splash=1" >> "${BOOT_CONFIG}"
             fi
+            if ! grep -q "^boot_delay=0" "${BOOT_CONFIG}"; then
+                echo "boot_delay=0" >> "${BOOT_CONFIG}"
+            fi
+            if ! grep -q "^initial_turbo=" "${BOOT_CONFIG}"; then
+                echo "initial_turbo=30" >> "${BOOT_CONFIG}"
+            fi
         fi
 
         BOOT_CMDLINE="/boot/firmware/cmdline.txt"
@@ -278,7 +284,8 @@ if [[ "${DRY_RUN}" != "true" ]]; then
         if [[ -f "${BOOT_CMDLINE}" ]]; then
             sed -i 's/console=tty1/console=tty3/g' "${BOOT_CMDLINE}"
             sed -i 's/loglevel=[0-9]/loglevel=0/g' "${BOOT_CMDLINE}"
-            for opt in "consoleblank=0" "vt.global_cursor_default=0" "quiet" "loglevel=0" "systemd.show_status=0" "logo.nologo" "console=tty3" "fsck.repair=yes" "fsck.mode=auto"; do
+            sed -i 's/fsck.mode=auto/fsck.mode=skip/g' "${BOOT_CMDLINE}"
+            for opt in "consoleblank=0" "vt.global_cursor_default=0" "quiet" "loglevel=0" "systemd.show_status=0" "logo.nologo" "console=tty3" "fsck.repair=yes" "fsck.mode=skip"; do
                 if ! grep -q "${opt}" "${BOOT_CMDLINE}"; then
                     sed -i "$ s/$/ ${opt}/" "${BOOT_CMDLINE}"
                 fi
@@ -320,6 +327,18 @@ if [[ "${DRY_RUN}" != "true" ]]; then
             systemctl mask cloud-init.service cloud-init-local.service cloud-config.service cloud-final.service 2>/dev/null || true
         fi
 
+        # Mask network-wait-online and slow system daemons to eliminate boot stalls
+        log_info "Masking network-wait-online and non-essential services to eliminate boot stalls..."
+        systemctl disable --now NetworkManager-wait-online.service systemd-networkd-wait-online.service ModemManager.service bluetooth.service hciuart.service triggerhappy.service triggerhappy.socket 2>/dev/null || true
+        systemctl mask NetworkManager-wait-online.service systemd-networkd-wait-online.service ModemManager.service bluetooth.service hciuart.service triggerhappy.service triggerhappy.socket 2>/dev/null || true
+
+        # Tune external storage mount in /etc/fstab to prevent boot stalls
+        if [[ -f /etc/fstab ]] && grep -qs "/mnt/external_hd/karaoke" /etc/fstab; then
+            log_info "Optimizing /mnt/external_hd/karaoke mount flags in /etc/fstab..."
+            sed -i -E 's|(x-systemd\.device-timeout=)[0-9]+|\13|g' /etc/fstab
+            sed -i -E 's|(/mnt/external_hd/karaoke[[:space:]]+auto[[:space:]]+[^[:space:]]+[[:space:]]+)[0-9]+[[:space:]]+[0-9]+|\10 0|g' /etc/fstab
+        fi
+
         if [[ -d /etc/apt/apt.conf.d ]]; then
             cat << EOF > /etc/apt/apt.conf.d/20auto-upgrades
 APT::Periodic::Update-Package-Lists "0";
@@ -356,7 +375,9 @@ EOF
         chmod 0440 /etc/sudoers.d/020_karaokezero 2>/dev/null || true
 
         systemctl daemon-reload
-        systemctl enable admin_panel.service orchestrator.service pikaraoke.service karaokezero-splash.service 2>/dev/null || true
+        rm -f /etc/systemd/system/basic.target.wants/karaokezero-splash.service 2>/dev/null || true
+        systemctl reenable karaokezero-splash.service 2>/dev/null || systemctl enable karaokezero-splash.service 2>/dev/null || true
+        systemctl enable admin_panel.service orchestrator.service pikaraoke.service 2>/dev/null || true
         log_success "Systemd services and display settings updated and reloaded."
     fi
 else

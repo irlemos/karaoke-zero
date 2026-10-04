@@ -370,8 +370,19 @@ class OrchestratorDaemon:
             return True
         try:
             res = subprocess.run(
-                ["pgrep", "-f", "boot_splash.png"],
+                ["pgrep", "-f", "boot_splash"],
                 stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=1
+            )
+            if res.returncode == 0:
+                return True
+        except Exception:
+            pass
+        try:
+            res = subprocess.run(
+                ["systemctl", "is-active", "--quiet", "karaokezero-splash.service"],
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=1
             )
@@ -402,35 +413,36 @@ class OrchestratorDaemon:
                 ["systemctl", "stop", "karaokezero-splash.service"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=1
+                timeout=2
             )
             if res.returncode != 0:
                 subprocess.run(
                     ["sudo", "-n", "systemctl", "stop", "karaokezero-splash.service"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    timeout=1
+                    timeout=2
                 )
         except Exception:
             pass
 
-        # Cleanup process and socket
-        try:
-            res = subprocess.run(
-                ["pkill", "-f", "boot_splash.png"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=1
-            )
-            if res.returncode != 0:
-                subprocess.run(
-                    ["sudo", "-n", "pkill", "-f", "boot_splash.png"],
+        # Cleanup lingering splash processes and socket
+        for proc_pattern in ["boot_splash", "show_splash.sh"]:
+            try:
+                res = subprocess.run(
+                    ["pkill", "-f", proc_pattern],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     timeout=1
                 )
-        except Exception:
-            pass
+                if res.returncode != 0:
+                    subprocess.run(
+                        ["sudo", "-n", "pkill", "-f", proc_pattern],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=1
+                    )
+            except Exception:
+                pass
 
         if os.path.exists(splash_sock):
             try:
@@ -438,7 +450,7 @@ class OrchestratorDaemon:
             except OSError:
                 pass
 
-        time.sleep(0.3)
+        time.sleep(0.2)
 
     def update_early_splash(self, image_path: str) -> bool:
         """
@@ -481,13 +493,6 @@ class OrchestratorDaemon:
         boot_screen = "/tmp/karaoke_boot_screen.png"
         has_early_splash = self.is_early_splash_running()
 
-        # Advance dynamic splash to 95% stage while awaiting service health
-        if has_early_splash:
-            for p in ["/opt/karaokezero/assets/splash/splash_95.png", os.path.join(os.path.dirname(__file__), "..", "assets", "splash", "splash_95.png")]:
-                if os.path.exists(p):
-                    self.update_early_splash(p)
-                    break
-
         # If early splash service is not running, spawn fallback graphical splash
         if not has_early_splash:
             try:
@@ -506,18 +511,8 @@ class OrchestratorDaemon:
         while self.running and (time.time() - start_time < max_wait_seconds):
             elapsed = time.time() - start_time
             if self.client.is_healthy():
-                # Advance dynamic splash to 100% stage (emerald green) to visually confirm readiness
-                if has_early_splash:
-                    for p in ["/opt/karaokezero/assets/splash/splash_100.png", os.path.join(os.path.dirname(__file__), "..", "assets", "splash", "splash_100.png")]:
-                        if os.path.exists(p):
-                            self.update_early_splash(p)
-                            time.sleep(0.6)
-                            break
-
-                if not has_early_splash and elapsed < min_display_seconds:
-                    time.sleep(min_display_seconds - elapsed)
-
                 self.write_console_status("PiKaraoke is ready! Starting display engine...")
+                self.dismiss_boot_splash()
                 self.display.stop(timeout=1.0)
                 self.clear_console()
                 return True

@@ -1,9 +1,10 @@
 [Unit]
 Description=KaraokeZero Early Boot Splash Screen
 DefaultDependencies=no
-After=local-fs.target systemd-udevd.service
-Wants=local-fs.target
-Before=basic.target multi-user.target
+After=systemd-udevd.service
+Wants=systemd-udevd.service
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
 
 [Service]
 Type=simple
@@ -17,4 +18,4 @@ Restart=no
 TimeoutStopSec=2
 
 [Install]
-WantedBy=basic.target
+WantedBy=sysinit.target

@@ -220,6 +220,30 @@ test_zero_write_and_power_loss_hardening() {
     grep -q "/var/log tmpfs" "${PROJECT_ROOT}/update.sh" || return 1
 }
 
+# Test 16: Early Boot Splash Unit Configuration (sysinit.target, no local-fs blocking)
+test_early_boot_splash_service() {
+    local splash_unit="${PROJECT_ROOT}/systemd/karaokezero-splash.service"
+    [[ -f "${splash_unit}" ]] || return 1
+    grep -q "DefaultDependencies=no" "${splash_unit}" || return 1
+    grep -q "WantedBy=sysinit.target" "${splash_unit}" || return 1
+    grep -q "Before=sysinit.target" "${splash_unit}" || return 1
+    # Must NOT wait for local-fs.target (external USB drives would delay splash by 30-60s)
+    if grep -q "After=.*local-fs.target" "${splash_unit}"; then
+        echo "karaokezero-splash.service must not depend on local-fs.target"
+        return 1
+    fi
+}
+
+# Test 17: Boot Stalls Mitigation (NetworkManager-wait-online, fstab 0 0, initial_turbo=30)
+test_boot_stalls_mitigation() {
+    grep -q "mask NetworkManager-wait-online.service" "${INSTALLER}" || return 1
+    grep -q "mask NetworkManager-wait-online.service" "${PROJECT_ROOT}/update.sh" || return 1
+    grep -q "initial_turbo=30" "${INSTALLER}" || return 1
+    grep -q "initial_turbo=30" "${PROJECT_ROOT}/update.sh" || return 1
+    grep -q "device-timeout=3" "${INSTALLER}" || return 1
+    grep -q "device-timeout" "${PROJECT_ROOT}/update.sh" || return 1
+}
+
 echo "==================================================================="
 echo "Running KaraokeZero Installer & Updater Test Suite"
 echo "==================================================================="
@@ -239,6 +263,8 @@ run_test "Updater dry-run execution on installed system" test_updater_dry_run_su
 run_test "Storage config persistence validation" test_storage_env_persistence
 run_test "Orchestrator service decoupling validation" test_orchestrator_service_decoupling
 run_test "Zero-write & power-loss hardening validation" test_zero_write_and_power_loss_hardening
+run_test "Early boot splash service configuration" test_early_boot_splash_service
+run_test "Boot stalls mitigation (network-wait & fstab)" test_boot_stalls_mitigation
 
 echo "==================================================================="
 if [[ "${FAILED}" -eq 0 ]]; then
