@@ -54,6 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const saveSettingsBtn = document.getElementById('saveSettingsBtn');
   const detectedDrivesList = document.getElementById('detectedDrivesList');
   const customOutputDirInput = document.getElementById('customOutputDirInput');
+  const browserCookiesSelect = document.getElementById('browserCookiesSelect');
 
   // Search Type Tabs
   const tabSongsBtn = document.getElementById('tabSongsBtn');
@@ -144,6 +145,10 @@ document.addEventListener('DOMContentLoaded', () => {
         qualitySelect.value = data.quality;
       }
 
+      if (data.browser_cookies && browserCookiesSelect) {
+        browserCookiesSelect.value = data.browser_cookies;
+      }
+
       if (data.output_dir) {
         const parts = data.output_dir.split('/');
         const dirName = parts[parts.length - 1] || parts[parts.length - 2] || data.output_dir;
@@ -210,6 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function saveSettings() {
     const newDir = customOutputDirInput.value.trim();
     const newQuality = qualitySelect.value;
+    const cookiesVal = browserCookiesSelect ? browserCookiesSelect.value : 'none';
 
     if (!newDir) {
       showToast('Destination path cannot be empty', 'warning');
@@ -222,7 +228,8 @@ document.addEventListener('DOMContentLoaded', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           output_dir: newDir,
-          quality: newQuality
+          quality: newQuality,
+          browser_cookies: cookiesVal
         })
       });
 
@@ -230,6 +237,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (data.status === 'ok') {
         currentSettings.output_dir = newDir;
         currentSettings.quality = newQuality;
+        currentSettings.browser_cookies = cookiesVal;
         const parts = newDir.split('/');
         currentStorageLabel.textContent = parts[parts.length - 1] || newDir;
         currentStorageLabel.title = newDir;

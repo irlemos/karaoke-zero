@@ -377,6 +377,7 @@ class DownloadManager:
             "rate_limit_streaming": "5M",
             "pacing_min_seconds": 5,
             "pacing_max_seconds": 15,
+            "browser_cookies": "none",
             "last_ytdlp_update_check": 0.0
         }
         # Check if an external KaraokeZero HD is already connected
@@ -778,24 +779,22 @@ class DownloadManager:
 
         # Target H.264 video + AAC/M4A audio in MP4 container for smooth Pi Zero hardware playback
         # Resilient format fallback handles YouTube changes without failing downloads
-        format_spec = f"bestvideo[vcodec^=avc1][height<={quality}]+bestaudio[ext!=webm]/bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best"
+        format_spec = f"bestvideo[height<={quality}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best"
+        sort_spec = f"res:{quality},vcodec:h264,acodec:m4a"
         output_template = os.path.join(output_dir, "%(title)s [%(id)s].%(ext)s")
         archive_path = os.path.join(output_dir, "download_archive.txt")
 
         # Essential flags:
-        # --extractor-args youtube:player_client=android,web bypasses YouTube bot checks
-        # --sleep-interval 5 --max-sleep-interval 15 enforces randomized delays
         # --limit-rate 5M restricts burst bandwidth to mimic real-time video streaming
+        # --sleep-requests throttles rapid API calls during extraction
         rate_limit = self.settings.get("rate_limit_streaming", "5M")
         cmd = ytdlp_cmd + [
             "--no-playlist",
             "-f", format_spec,
-            "-S", "vcodec:h264,res,acodec:m4a",
+            "-S", sort_spec,
             "--merge-output-format", "mp4",
-            "--extractor-args", "youtube:player_client=android,web",
-            "--sleep-interval", "5",
-            "--max-sleep-interval", "15",
             "--limit-rate", rate_limit,
+            "--sleep-requests", "1.5",
             "--socket-timeout", "30",
             "--retries", "3",
             "--fragment-retries", "3",
@@ -804,8 +803,18 @@ class DownloadManager:
             "--no-mtime",
             "--newline",
             "-o", output_template,
-            url
         ]
+
+        # Optional browser cookies or cookies.txt to bypass YouTube bot verification challenges
+        cookies_file = os.path.join(self.config_dir, "cookies.txt")
+        if os.path.isfile(cookies_file) and os.path.getsize(cookies_file) > 0:
+            cmd.extend(["--cookies", cookies_file])
+        else:
+            browser_cookies = self.settings.get("browser_cookies", "none")
+            if browser_cookies and browser_cookies != "none":
+                cmd.extend(["--cookies-from-browser", browser_cookies])
+
+        cmd.append(url)
 
         logger.info("Starting yt-dlp download for '%s'...", task["title"])
 
@@ -836,8 +845,12 @@ class DownloadManager:
                     continue
 
                 output_lines.append(line)
-                if "ERROR:" in line or "error:" in line.lower() or "Sign in to confirm" in line or "HTTP Error" in line:
-                    error_lines.append(line)
+                is_warning = line.startswith("WARNING:") or "[youtube] WARNING" in line
+                if not is_warning:
+                    if "ERROR:" in line or "Sign in to confirm" in line or line.lower().startswith("error:"):
+                        error_lines.append(line)
+                    elif "HTTP Error" in line and "Unable to download webpage" not in line:
+                        error_lines.append(line)
 
                 # Capture destination or merged filepath from yt-dlp output
                 dest_m = re.search(r"\[(?:download|Merger)\]\s+(?:Destination:\s+|Merging formats into\s+)\"?([^\"\n\r]+)\"?", line)
@@ -894,8 +907,14 @@ class DownloadManager:
                 else:
                     task["status"] = "error"
 
-                    # Check if error was caused by rate limiting (HTTP 429)
-                    is_rate_limited = any("429" in l or "Too Many Requests" in l for l in output_lines)
+                    # Check if error was caused by genuine fatal rate limiting (HTTP 429)
+                    # Non-fatal warnings like "Unable to download webpage: HTTP Error 429" are ignored
+                    is_rate_limited = any(
+                        ("HTTP Error 429" in l or "429: Too Many Requests" in l)
+                        and not l.startswith("WARNING:")
+                        and "Unable to download webpage" not in l
+                        for l in error_lines
+                    )
                     if is_rate_limited:
                         cooldown_secs = 30 * 60  # 30-minute safety cooldown
                         self.rate_limit_active = True
@@ -911,13 +930,16 @@ class DownloadManager:
                     if error_lines:
                         for el in reversed(error_lines):
                             if "Sign in to confirm you" in el:
-                                error_summary = "YouTube bot check: Sign in to confirm you're not a bot"
+                                error_summary = "YouTube bot check: Sign in required (configure browser cookies in Settings)"
                                 break
-                            elif "HTTP Error 429" in el or "429" in el:
+                            elif "HTTP Error 429" in el or "429: Too Many Requests" in el:
                                 error_summary = "YouTube rate limited (HTTP 429: Too Many Requests)"
                                 break
                             elif "Private video" in el or "Video unavailable" in el:
                                 error_summary = "Video unavailable or private"
+                                break
+                            elif "Requested format is not available" in el:
+                                error_summary = "Requested format not available for this video"
                                 break
                             else:
                                 clean_el = re.sub(r"^ERROR:\s*(\[[^\]]+\]\s*)?([A-Za-z0-9_-]+:\s*)?", "", el).strip()

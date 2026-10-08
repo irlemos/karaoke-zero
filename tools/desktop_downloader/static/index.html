@@ -404,6 +404,22 @@
           </div>
         </div>
 
+        <!-- YouTube Authentication / Browser Cookies Section -->
+        <div class="settings-section">
+          <label class="settings-label">YouTube Bot Check Bypass (Browser Cookies)</label>
+          <p class="settings-subtext">If YouTube requires authentication ("Sign in to confirm you're not a bot"), select your desktop browser to use its existing session cookies:</p>
+          <div class="custom-path-group">
+            <select id="browserCookiesSelect" class="quality-select" style="width: 100%;">
+              <option value="none">None (Default / Public Streams)</option>
+              <option value="chrome">Google Chrome</option>
+              <option value="firefox">Mozilla Firefox</option>
+              <option value="edge">Microsoft Edge</option>
+              <option value="brave">Brave Browser</option>
+              <option value="chromium">Chromium</option>
+            </select>
+          </div>
+        </div>
+
         <!-- Hardware Video Preset Section -->
         <div class="settings-section">
           <label class="settings-label">Hardware Profile Guarantee</label>
@@ -574,8 +590,8 @@
           <div class="safeguard-row">
             <div class="safeguard-icon">📱</div>
             <div>
-              <strong>Mobile Ecosystem Emulation (Android/Web):</strong>
-              <span>Uses official mobile player client RPCs that bypass desktop player bot challenges and CAPTCHA gates.</span>
+              <strong>Adaptive Multi-Client Resolution &amp; Cookies:</strong>
+              <span>Automatically selects the optimal client API (VisionOS/Web/Mobile) to preserve Full HD/1080p without SABR stream degradation, with seamless browser cookie pass-through for bot verification.</span>
             </div>
           </div>
           <div class="safeguard-row">

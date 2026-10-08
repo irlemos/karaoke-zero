@@ -744,23 +744,55 @@ class TestAntiBanResilience(unittest.TestCase):
         proc_mock.stdout = ["Merging formats into \"/tmp/test.mp4\"\n"]
         mock_popen.return_value = proc_mock
 
-        t = self.dm.enqueue_download("https://youtube.com/watch?v=flags_test", title="Flags Test")
+        t = self.dm.enqueue_download("https://youtube.com/watch?v=flags_test", title="Flags Test", quality="1080")
         self.dm._execute_download(t)
 
         self.assertTrue(mock_popen.called)
         cmd_args = mock_popen.call_args[0][0]
 
-        # Verify anti-ban behavioral flags
-        self.assertIn("--sleep-interval", cmd_args)
-        self.assertIn("5", cmd_args)
-        self.assertIn("--max-sleep-interval", cmd_args)
-        self.assertIn("15", cmd_args)
+        # Verify anti-ban behavioral flags and quality sorting
         self.assertIn("--limit-rate", cmd_args)
         self.assertIn("5M", cmd_args)
+        self.assertIn("--sleep-requests", cmd_args)
+        self.assertIn("1.5", cmd_args)
+        self.assertIn("-S", cmd_args)
+        self.assertIn("res:1080,vcodec:h264,acodec:m4a", cmd_args)
 
-        # Verify commercial client simulation
-        self.assertIn("--extractor-args", cmd_args)
-        self.assertIn("youtube:player_client=android,web", cmd_args)
+        # Verify broken SABR-forcing android player client is NOT forced
+        self.assertNotIn("youtube:player_client=android,web", cmd_args)
+
+    @patch("subprocess.Popen")
+    def test_cookies_from_browser_flag_added(self, mock_popen):
+        proc_mock = MagicMock()
+        proc_mock.returncode = 0
+        proc_mock.stdout = ["Merging formats into \"/tmp/test.mp4\"\n"]
+        mock_popen.return_value = proc_mock
+
+        self.dm.settings["browser_cookies"] = "chrome"
+        t = self.dm.enqueue_download("https://youtube.com/watch?v=cookie_test", title="Cookie Test")
+        self.dm._execute_download(t)
+
+        cmd_args = mock_popen.call_args[0][0]
+        self.assertIn("--cookies-from-browser", cmd_args)
+        self.assertIn("chrome", cmd_args)
+
+    @patch("subprocess.Popen")
+    def test_warning_429_does_not_activate_cooldown_on_unrelated_error(self, mock_popen):
+        proc_mock = MagicMock()
+        proc_mock.returncode = 1
+        proc_mock.stdout = [
+            "WARNING: [youtube] test: Unable to download webpage: HTTP Error 429: Too Many Requests\n",
+            "ERROR: [youtube] test: Video unavailable\n"
+        ]
+        mock_popen.return_value = proc_mock
+
+        t = self.dm.enqueue_download("https://youtube.com/watch?v=warn_test", title="Warning Test")
+        self.dm._execute_download(t)
+
+        # The non-fatal warning must NOT trigger the 30-minute cooldown
+        self.assertFalse(self.dm.rate_limit_active)
+        self.assertFalse(self.dm.is_paused)
+        self.assertEqual(t["error"], "Video unavailable or private")
 
     @patch("subprocess.Popen")
     def test_rate_limit_429_activates_cooldown(self, mock_popen):

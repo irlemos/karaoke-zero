@@ -429,6 +429,8 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
             q_val = body.get("quality") or body.get("default_quality")
             if q_val:
                 new_cfg["default_quality"] = str(q_val)
+            if "browser_cookies" in body:
+                new_cfg["browser_cookies"] = str(body["browser_cookies"])
 
             updated = download_mgr.save_settings(new_cfg)
             self._send_json(200, {
