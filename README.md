@@ -74,6 +74,7 @@ karaoke-zero/
 ├── LICENSE                     # AGPL-3.0 License
 │
 ├── karaoke-downloader          # Standalone Linux desktop downloader launcher
+├── karaoke-downloader-win.bat  # Standalone Windows desktop downloader launcher
 ├── karaoke-dedup               # Standalone duplicate video cleaner CLI launcher
 ├── tools/                      # Desktop utilities and companion tools
 │   ├── desktop_downloader/     # High-volume PC downloader web app (Zero pip deps)
@@ -129,12 +130,12 @@ A Python service that monitors the local PiKaraoke queue (`/api/queue`) and driv
 - **Process Recycling:** Between songs, the MPV process is terminated and cleanly re-spawned. This completely flushes memory allocations and releases VideoCore IV GPU handles, avoiding memory fragmentation during extended sessions.
 
 ### 3. Desktop Song Downloader (`tools/desktop_downloader/`)
-A standalone, zero-dependency desktop utility that runs on the user's Linux PC to bulk-download hundreds of songs directly to the external USB drive:
+A standalone, zero-dependency desktop utility that runs on the user's PC (Linux or Windows) to bulk-download hundreds of songs directly to the external USB drive:
 - **Full PC Bandwidth:** Bypasses the Raspberry Pi Zero W single-core CPU and Wi-Fi limits, allowing massive catalog downloads at multi-gigabit speeds.
 - **Visual Web UI with Cover Thumbnails:** Fast YouTube search showing thumbnails, video duration, and artist channels in ~250ms with zero Google API keys.
 - **Playlist & Batch Text Importing:** Paste entire YouTube playlist URLs or plain text song title lists to enqueue entire repertoires with one click.
 - **Pi Zero W Hardware Acceleration Guarantee:** Enforces H.264 (AVC1) video and AAC/M4A audio in MP4 container (`--merge-output-format mp4`, `-S vcodec:h264,res,acodec:m4a`), ensuring 100% hardware decoding on the Raspberry Pi Zero without frame drops.
-- **Zero-Config Launcher:** Just run `./karaoke-downloader` from the repository root. It checks system dependencies (Python 3, ffmpeg, yt-dlp) and opens the default browser automatically.
+- **Zero-Config Launcher:** Just run `./karaoke-downloader` (on Linux) or `karaoke-downloader-win.bat` (on Windows) from the repository root. It checks system dependencies (Python 3, ffmpeg, yt-dlp) and opens the default browser automatically.
 
 ### 4. Video Deduplication & Cleaner Utility (`tools/duplicate_cleaner/`)
 A command-line text-mode tool to scan song libraries and purge duplicate videos—even when filenames differ:

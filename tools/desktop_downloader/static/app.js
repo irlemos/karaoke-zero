@@ -154,7 +154,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     drives.forEach(drive => {
       const card = document.createElement('div');
-      const isSelected = selectedPath.startsWith(drive.path);
+      const normSelected = (selectedPath || '').replace(/\\/g, '/').toLowerCase();
+      const normDrive = (drive.path || '').replace(/\\/g, '/').toLowerCase();
+      const isSelected = normSelected.startsWith(normDrive);
       card.className = `drive-card ${isSelected ? 'selected' : ''}`;
       card.innerHTML = `
         <div class="drive-card-left">
@@ -176,7 +178,15 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.drive-card').forEach(c => c.classList.remove('selected'));
         card.classList.add('selected');
         // Default to /songs subfolder on selected drive
-        const targetPath = drive.path.endsWith('/songs') ? drive.path : `${drive.path}/songs`;
+        const normPath = (drive.path || '').replace(/\\/g, '/').toLowerCase();
+        let targetPath = drive.path;
+        if (!normPath.endsWith('/songs')) {
+          if (drive.path.includes('\\')) {
+            targetPath = drive.path.endsWith('\\') ? `${drive.path}songs` : `${drive.path}\\songs`;
+          } else {
+            targetPath = drive.path.endsWith('/') ? `${drive.path}songs` : `${drive.path}/songs`;
+          }
+        }
         customOutputDirInput.value = targetPath;
       });
 

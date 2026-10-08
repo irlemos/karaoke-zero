@@ -89,13 +89,15 @@ def resolve_server_port(
        notifies the user and returns it. If all max_attempts ports are in use,
        displays an error asking the user to specify a free port via --port and exits.
     """
+    launcher_cmd = "karaoke-downloader-win.bat" if sys.platform == "win32" else "./karaoke-downloader"
+
     if requested_port is not None:
         if not is_port_available(requested_port, host=host):
             print("\n" + "=" * 65, file=sys.stderr)
             print(f"[ERROR] Port {requested_port} is already in use by another application.", file=sys.stderr)
             print("=" * 65, file=sys.stderr)
             print("Please specify a different, available port using the --port parameter:", file=sys.stderr)
-            print(f"\n    ./karaoke-downloader --port <PORT_NUMBER>\n", file=sys.stderr)
+            print(f"\n    {launcher_cmd} --port <PORT_NUMBER>\n", file=sys.stderr)
             print("=" * 65 + "\n", file=sys.stderr)
             sys.exit(1)
         return requested_port
@@ -108,9 +110,9 @@ def resolve_server_port(
         print("=" * 65, file=sys.stderr)
         print("No available port could be found automatically.", file=sys.stderr)
         print("Please free up one of these ports or specify an available port using the --port parameter:", file=sys.stderr)
-        print(f"\n    ./karaoke-downloader --port <PORT_NUMBER>\n", file=sys.stderr)
+        print(f"\n    {launcher_cmd} --port <PORT_NUMBER>\n", file=sys.stderr)
         print("Example:", file=sys.stderr)
-        print("    ./karaoke-downloader --port 8888", file=sys.stderr)
+        print(f"    {launcher_cmd} --port 8888", file=sys.stderr)
         print("=" * 65 + "\n", file=sys.stderr)
         sys.exit(1)
 
@@ -226,7 +228,15 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
             devices = detect_storage_devices()
             ytdlp_cmd = resolve_ytdlp_command()
             ytdlp_exists = shutil.which(ytdlp_cmd[0]) is not None or os.path.isfile(ytdlp_cmd[0])
-            ffmpeg_exists = shutil.which("ffmpeg") is not None
+            repo_root = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
+            ffmpeg_exists = (
+                shutil.which("ffmpeg") is not None
+                or (sys.platform == "win32" and shutil.which("ffmpeg.exe") is not None)
+                or os.path.isfile(os.path.join(repo_root, "bin", "ffmpeg.exe"))
+                or os.path.isfile(os.path.join(repo_root, "bin", "ffmpeg"))
+                or os.path.isfile(os.path.join(SCRIPT_DIR, "bin", "ffmpeg.exe"))
+                or os.path.isfile(os.path.join(SCRIPT_DIR, "bin", "ffmpeg"))
+            )
 
             self._send_json(200, {
                 "success": True,

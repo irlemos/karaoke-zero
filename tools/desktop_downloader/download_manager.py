@@ -70,6 +70,15 @@ def sanitize_filename(name: str, max_len: int = 180) -> str:
     if not cleaned:
         cleaned = "Song"
 
+    # Avoid Windows reserved device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+    windows_reserved = {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    }
+    if cleaned.upper() in windows_reserved:
+        cleaned = f"{cleaned}_song"
+
     if len(cleaned) > max_len:
         cleaned = cleaned[:max_len].strip(" .-_")
 
@@ -96,28 +105,57 @@ def sanitize_file_path(filepath: str) -> str:
     return os.path.join(dirname, new_filename)
 
 
+def get_free_disk_space_gb(path: str) -> float:
+    """Returns free disk space in gigabytes for a path using cross-platform shutil.disk_usage."""
+    try:
+        usage = shutil.disk_usage(path)
+        return round(usage.free / (1024 ** 3), 1)
+    except Exception:
+        return 0.0
+
+
 def resolve_ytdlp_command() -> List[str]:
     """
     Finds available yt-dlp executable on the system.
-    Searches PATH, ~/.local/bin, /usr/local/bin, /usr/bin, and local tool directory.
+    Searches PATH, ~/.local/bin, /usr/local/bin, /usr/bin, local tool bin, and repo root bin.
     """
-    which_bin = shutil.which("yt-dlp")
-    if which_bin and os.path.isfile(which_bin) and os.access(which_bin, os.X_OK):
-        return [which_bin]
+    # 1. Search system PATH (including yt-dlp.exe on Windows)
+    bin_names = ["yt-dlp.exe", "yt-dlp"] if sys.platform == "win32" else ["yt-dlp"]
+    for bin_name in bin_names:
+        which_bin = shutil.which(bin_name)
+        if which_bin and os.path.isfile(which_bin):
+            if sys.platform == "win32" or os.access(which_bin, os.X_OK):
+                return [which_bin]
 
     user_home = os.path.expanduser("~")
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.abspath(os.path.join(script_dir, "..", ".."))
 
     candidates = [
+        os.path.join(repo_root, "bin", "yt-dlp.exe"),
+        os.path.join(repo_root, "bin", "yt-dlp"),
+        os.path.join(script_dir, "bin", "yt-dlp.exe"),
         os.path.join(script_dir, "bin", "yt-dlp"),
         os.path.join(user_home, ".local", "bin", "yt-dlp"),
         "/usr/local/bin/yt-dlp",
         "/usr/bin/yt-dlp",
         "/opt/pikaraoke/venv/bin/yt-dlp"
     ]
+
+    # Windows-specific candidate paths
+    if sys.platform == "win32":
+        local_app_data = os.environ.get("LOCALAPPDATA", "")
+        prog_data = os.environ.get("PROGRAMDATA", "")
+        candidates.extend([
+            os.path.join(local_app_data, "Microsoft", "WinGet", "Links", "yt-dlp.exe"),
+            os.path.join(prog_data, "chocolatey", "bin", "yt-dlp.exe"),
+            os.path.join(user_home, "scoop", "shims", "yt-dlp.exe")
+        ])
+
     for c in candidates:
-        if os.path.isfile(c) and os.access(c, os.X_OK):
-            return [c]
+        if c and os.path.isfile(c):
+            if sys.platform == "win32" or os.access(c, os.X_OK):
+                return [c]
 
     try:
         import yt_dlp
@@ -125,88 +163,157 @@ def resolve_ytdlp_command() -> List[str]:
     except ImportError:
         pass
 
-    return ["yt-dlp"]
+    return ["yt-dlp.exe" if sys.platform == "win32" else "yt-dlp"]
 
 
 def detect_storage_devices() -> List[Dict[str, Any]]:
     """
-    Detects mounted USB storage devices, external drives, and common home folders
-    available on the Linux PC. Identifies KaraokeZero drives automatically.
+    Detects mounted USB storage devices, external drives, and common folders
+    available on Windows or Linux PC. Identifies KaraokeZero drives automatically.
     """
     devices: List[Dict[str, Any]] = []
     seen_paths = set()
 
     user_home = os.path.expanduser("~")
-    username = os.environ.get("USER", os.path.basename(user_home))
+    username = os.environ.get("USERNAME") or os.environ.get("USER", os.path.basename(user_home))
 
-    # Search mount locations for external USB drives
-    search_roots = [
-        f"/media/{username}",
-        f"/run/media/{username}",
-        "/media",
-        "/mnt",
-        "/mnt/external_hd/karaoke",
-    ]
-
-    for root in search_roots:
-        if not os.path.isdir(root):
-            continue
+    # --- Windows Drive Letter Detection ---
+    if sys.platform == "win32":
+        import string
+        drive_letters = []
         try:
-            for entry in os.listdir(root):
-                full_path = os.path.join(root, entry)
-                if not os.path.isdir(full_path):
-                    continue
-                real_p = os.path.realpath(full_path)
-                if real_p in seen_paths:
-                    continue
-                seen_paths.add(real_p)
+            import ctypes
+            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+            for letter in string.ascii_uppercase:
+                if bitmask & 1:
+                    drive_letters.append(f"{letter}:\\")
+                bitmask >>= 1
+        except Exception:
+            for letter in string.ascii_uppercase:
+                d_root = f"{letter}:\\"
+                if os.path.exists(d_root):
+                    drive_letters.append(d_root)
 
-                # Check if this is a KaraokeZero storage drive
-                is_kz = False
-                songs_subpath = full_path
-                if os.path.isdir(os.path.join(full_path, "songs")):
-                    songs_subpath = os.path.join(full_path, "songs")
-                    is_kz = True
-                elif os.path.isdir(os.path.join(full_path, "karaoke", "songs")):
-                    songs_subpath = os.path.join(full_path, "karaoke", "songs")
-                    is_kz = True
-                elif entry.lower() in ("karaoke", "karaokezero"):
-                    is_kz = True
+        for drive_root in drive_letters:
+            if not os.path.exists(drive_root):
+                continue
+            real_p = os.path.realpath(drive_root)
+            if real_p in seen_paths:
+                continue
+            seen_paths.add(real_p)
 
-                # Check free space
-                free_gb = 0.0
-                try:
-                    stat = os.statvfs(full_path)
-                    free_gb = round((stat.f_bavail * stat.f_frsize) / (1024 ** 3), 1)
-                except Exception:
-                    pass
+            drive_type = 3  # default fixed
+            volume_label = ""
+            try:
+                import ctypes
+                drive_type = ctypes.windll.kernel32.GetDriveTypeW(drive_root)
+                vol_buf = ctypes.create_unicode_buffer(261)
+                fs_buf = ctypes.create_unicode_buffer(261)
+                if ctypes.windll.kernel32.GetVolumeInformationW(
+                    ctypes.c_wchar_p(drive_root),
+                    vol_buf, ctypes.sizeof(vol_buf),
+                    None, None, None,
+                    fs_buf, ctypes.sizeof(fs_buf)
+                ):
+                    volume_label = vol_buf.value
+            except Exception:
+                pass
 
-                label = f"{entry} ({free_gb} GB free)"
-                if is_kz:
-                    label = f"★ KaraokeZero HD: {entry} ({free_gb} GB free)"
+            is_removable = (drive_type == 2)
+            system_drive = os.environ.get("SystemDrive", "C:").upper()
+            drive_letter_only = drive_root[:2].upper()
+            is_secondary = (drive_letter_only != system_drive)
+            is_external = is_removable or is_secondary
 
-                devices.append({
-                    "path": songs_subpath,
-                    "base_path": full_path,
-                    "label": label,
-                    "free_gb": free_gb,
-                    "is_karaokezero": is_kz,
-                    "is_external": True
-                })
-        except Exception as e:
-            logger.debug("Error scanning storage root %s: %s", root, e)
+            # Check if this is a KaraokeZero storage drive
+            is_kz = False
+            songs_subpath = os.path.join(drive_root, "songs")
+            if os.path.isdir(os.path.join(drive_root, "songs")):
+                songs_subpath = os.path.join(drive_root, "songs")
+                is_kz = True
+            elif os.path.isdir(os.path.join(drive_root, "karaoke", "songs")):
+                songs_subpath = os.path.join(drive_root, "karaoke", "songs")
+                is_kz = True
+            elif "karaoke" in volume_label.lower():
+                is_kz = True
 
-    # Add standard default locations
+            free_gb = get_free_disk_space_gb(drive_root)
+
+            display_name = f"{volume_label} ({drive_root})" if volume_label else drive_root
+            if is_kz:
+                label = f"★ KaraokeZero HD: {display_name} ({free_gb} GB free)"
+            elif is_removable:
+                label = f"USB Drive: {display_name} ({free_gb} GB free)"
+            else:
+                label = f"Local Drive: {display_name} ({free_gb} GB free)"
+
+            devices.append({
+                "path": songs_subpath if is_kz else drive_root,
+                "base_path": drive_root,
+                "label": label,
+                "free_gb": free_gb,
+                "is_karaokezero": is_kz,
+                "is_external": is_external
+            })
+
+    # --- Linux / Unix Mount Detection ---
+    else:
+        search_roots = [
+            f"/media/{username}",
+            f"/run/media/{username}",
+            "/media",
+            "/mnt",
+            "/mnt/external_hd/karaoke",
+        ]
+
+        for root in search_roots:
+            if not os.path.isdir(root):
+                continue
+            try:
+                for entry in os.listdir(root):
+                    full_path = os.path.join(root, entry)
+                    if not os.path.isdir(full_path):
+                        continue
+                    real_p = os.path.realpath(full_path)
+                    if real_p in seen_paths:
+                        continue
+                    seen_paths.add(real_p)
+
+                    # Check if this is a KaraokeZero storage drive
+                    is_kz = False
+                    songs_subpath = full_path
+                    if os.path.isdir(os.path.join(full_path, "songs")):
+                        songs_subpath = os.path.join(full_path, "songs")
+                        is_kz = True
+                    elif os.path.isdir(os.path.join(full_path, "karaoke", "songs")):
+                        songs_subpath = os.path.join(full_path, "karaoke", "songs")
+                        is_kz = True
+                    elif entry.lower() in ("karaoke", "karaokezero"):
+                        is_kz = True
+
+                    free_gb = get_free_disk_space_gb(full_path)
+
+                    label = f"{entry} ({free_gb} GB free)"
+                    if is_kz:
+                        label = f"★ KaraokeZero HD: {entry} ({free_gb} GB free)"
+
+                    devices.append({
+                        "path": songs_subpath,
+                        "base_path": full_path,
+                        "label": label,
+                        "free_gb": free_gb,
+                        "is_karaokezero": is_kz,
+                        "is_external": True
+                    })
+            except Exception as e:
+                logger.debug("Error scanning storage root %s: %s", root, e)
+
+    # Add standard default locations (Music & Downloads)
     default_music = os.path.join(user_home, "Music", "KaraokeZero")
     default_downloads = os.path.join(user_home, "Downloads", "KaraokeZero")
 
     for loc, name in [(default_music, "Music / KaraokeZero"), (default_downloads, "Downloads / KaraokeZero")]:
-        try:
-            stat = os.statvfs(user_home)
-            free_gb = round((stat.f_bavail * stat.f_frsize) / (1024 ** 3), 1)
-        except Exception:
-            free_gb = 0.0
-
+        free_gb = get_free_disk_space_gb(user_home)
         devices.append({
             "path": loc,
             "base_path": loc,
@@ -391,7 +498,18 @@ class DownloadManager:
                 task["status"] = "cancelled"
                 if self.current_process:
                     try:
-                        self.current_process.terminate()
+                        if sys.platform == "win32":
+                            try:
+                                subprocess.run(
+                                    ["taskkill", "/F", "/T", "/PID", str(self.current_process.pid)],
+                                    capture_output=True,
+                                    timeout=2
+                                )
+                            except Exception:
+                                self.current_process.terminate()
+                        else:
+                            self.current_process.terminate()
+
                         try:
                             self.current_process.wait(timeout=0.3)
                         except subprocess.TimeoutExpired:
@@ -711,12 +829,16 @@ class DownloadManager:
 
         clean_path = sanitize_file_path(target_file)
         if clean_path != target_file:
-            try:
-                os.replace(target_file, clean_path)
-                logger.info("Sanitized filename on disk: '%s' -> '%s'", os.path.basename(target_file), os.path.basename(clean_path))
-                return clean_path
-            except Exception as e:
-                logger.warning("Failed to rename file '%s' to '%s': %s", target_file, clean_path, e)
-                return target_file
+            for attempt in range(3):
+                try:
+                    os.replace(target_file, clean_path)
+                    logger.info("Sanitized filename on disk: '%s' -> '%s'", os.path.basename(target_file), os.path.basename(clean_path))
+                    return clean_path
+                except PermissionError:
+                    time.sleep(0.15)
+                except Exception as e:
+                    logger.warning("Failed to rename file '%s' to '%s': %s", target_file, clean_path, e)
+                    return target_file
+            return target_file
 
         return target_file

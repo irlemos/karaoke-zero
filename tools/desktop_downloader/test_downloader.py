@@ -32,6 +32,7 @@ from desktop_downloader.download_manager import (
     resolve_ytdlp_command,
     sanitize_filename,
     sanitize_file_path,
+    get_free_disk_space_gb,
 )
 from desktop_downloader.youtube_search import (
     parse_duration_seconds,
@@ -652,6 +653,77 @@ class TestPortResolution(unittest.TestCase):
              self.assertRaises(SystemExit) as cm:
             resolve_server_port(requested_port=8080)
         self.assertEqual(cm.exception.code, 1)
+
+
+class TestWindowsCompatibility(unittest.TestCase):
+    """Verifies that download manager functions behave correctly under Windows constraints."""
+
+    def test_sanitize_windows_reserved_device_names(self):
+        for name in ["CON", "prn", "Aux", "nul", "COM1", "com9", "LPT1", "lpt5"]:
+            clean = sanitize_filename(name)
+            self.assertTrue(clean.endswith("_song"), f"Expected {name} to end with _song, got {clean}")
+
+    def test_get_free_disk_space_gb(self):
+        class MockUsage:
+            free = 25 * (1024 ** 3)
+        with patch("shutil.disk_usage", return_value=MockUsage()):
+            gb = get_free_disk_space_gb("C:\\")
+            self.assertEqual(gb, 25.0)
+
+    @patch("sys.platform", "win32")
+    def test_resolve_ytdlp_command_windows_exe(self):
+        with patch("shutil.which", side_effect=lambda cmd: "C:\\Tools\\yt-dlp.exe" if "yt-dlp" in cmd else None), \
+             patch("os.path.isfile", return_value=True):
+            cmd = resolve_ytdlp_command()
+            self.assertEqual(cmd, ["C:\\Tools\\yt-dlp.exe"])
+
+    @patch("sys.platform", "win32")
+    def test_detect_storage_devices_windows(self):
+        def mock_exists(p):
+            return "C:" in p or "D:" in p
+
+        def mock_isdir(p):
+            return "songs" in p and "D:" in p
+
+        mock_ctypes = MagicMock()
+        mock_ctypes.windll.kernel32.GetLogicalDrives.return_value = 0b1100
+        mock_ctypes.windll.kernel32.GetDriveTypeW.return_value = 2
+        mock_ctypes.windll.kernel32.GetVolumeInformationW.return_value = 1
+
+        with patch("os.path.exists", side_effect=mock_exists), \
+             patch("os.path.isdir", side_effect=mock_isdir), \
+             patch("os.path.realpath", side_effect=lambda p: p), \
+             patch("desktop_downloader.download_manager.get_free_disk_space_gb", return_value=64.0), \
+             patch.dict("sys.modules", {"ctypes": mock_ctypes}):
+            devices = detect_storage_devices()
+            self.assertIsInstance(devices, list)
+            self.assertGreater(len(devices), 0)
+            kz_drives = [d for d in devices if d.get("is_karaokezero")]
+            self.assertTrue(len(kz_drives) > 0)
+            self.assertTrue(kz_drives[0]["path"].startswith("D:") and "songs" in kz_drives[0]["path"])
+
+    @patch("sys.platform", "win32")
+    def test_cancel_task_windows_taskkill(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg = os.path.join(tmpdir, "test_cfg.json")
+            mgr = DownloadManager(config_path=cfg, auto_start=False)
+            task = mgr.enqueue_download("https://www.youtube.com/watch?v=dQw4w9WgXcQ", title="Rick Astley")
+            task_id = task["id"]
+
+            mock_proc = MagicMock()
+            mock_proc.pid = 98765
+            mgr.tasks[task_id]["status"] = "downloading"
+            mgr.active_task_id = task_id
+            mgr.current_process = mock_proc
+
+            with patch("subprocess.run") as mock_run:
+                cancelled = mgr.cancel_task(task_id)
+                self.assertTrue(cancelled)
+                mock_run.assert_called_once_with(
+                    ["taskkill", "/F", "/T", "/PID", "98765"],
+                    capture_output=True,
+                    timeout=2
+                )
 
 
 if __name__ == "__main__":
