@@ -22,6 +22,9 @@ if not exist "%BIN_DIR%" (
     mkdir "%BIN_DIR%" >nul 2>&1
 )
 set "PATH=%BIN_DIR%;%PATH%"
+if exist "%USERPROFILE%\.deno\bin" (
+    set "PATH=%USERPROFILE%\.deno\bin;%PATH%"
+)
 
 set "MISSING_DEPS=0"
 

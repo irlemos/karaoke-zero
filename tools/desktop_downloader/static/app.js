@@ -145,8 +145,9 @@ document.addEventListener('DOMContentLoaded', () => {
         qualitySelect.value = data.quality;
       }
 
-      if (data.browser_cookies && browserCookiesSelect) {
-        browserCookiesSelect.value = data.browser_cookies;
+      const cookiesVal = data.browser_cookies || (data.settings && data.settings.browser_cookies) || 'none';
+      if (browserCookiesSelect) {
+        browserCookiesSelect.value = cookiesVal;
       }
 
       if (data.output_dir) {

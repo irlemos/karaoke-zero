@@ -244,6 +244,7 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
                 "output_dir": download_mgr.settings.get("output_dir"),
                 "quality": download_mgr.settings.get("default_quality", "480"),
                 "default_quality": download_mgr.settings.get("default_quality", "480"),
+                "browser_cookies": download_mgr.settings.get("browser_cookies", "none"),
                 "available_drives": devices,
                 "storage_devices": devices,
                 "settings": download_mgr.settings,
@@ -438,6 +439,7 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
                 "status": "ok",
                 "output_dir": updated.get("output_dir"),
                 "quality": updated.get("default_quality"),
+                "browser_cookies": updated.get("browser_cookies", "none"),
                 "settings": updated
             })
             return

@@ -805,6 +805,19 @@ class DownloadManager:
             "-o", output_template,
         ]
 
+        # Ensure a JavaScript runtime is configured so yt-dlp can solve YouTube cipher and n-challenges
+        deno_bin = (
+            shutil.which("deno")
+            or (os.path.isfile(os.path.expanduser("~/.deno/bin/deno")) and os.path.expanduser("~/.deno/bin/deno"))
+            or (sys.platform == "win32" and os.path.isfile(os.path.expandvars(r"%USERPROFILE%\.deno\bin\deno.exe")) and os.path.expandvars(r"%USERPROFILE%\.deno\bin\deno.exe"))
+        )
+        if deno_bin:
+            cmd.extend(["--js-runtimes", f"deno:{deno_bin}"])
+        else:
+            qjs_bin = shutil.which("qjs") or shutil.which("quickjs")
+            if qjs_bin:
+                cmd.extend(["--js-runtimes", f"quickjs:{qjs_bin}"])
+
         # Optional browser cookies or cookies.txt to bypass YouTube bot verification challenges
         cookies_file = os.path.join(self.config_dir, "cookies.txt")
         if os.path.isfile(cookies_file) and os.path.getsize(cookies_file) > 0:
@@ -822,13 +835,19 @@ class DownloadManager:
         error_lines = []
 
         try:
+            env = dict(os.environ)
+            deno_dir = os.path.expanduser("~/.deno/bin")
+            if os.path.isdir(deno_dir) and deno_dir not in env.get("PATH", ""):
+                env["PATH"] = f"{deno_dir}:{env.get('PATH', '')}"
+
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                universal_newlines=True
+                universal_newlines=True,
+                env=env
             )
             with self.lock:
                 self.current_process = proc
@@ -937,6 +956,9 @@ class DownloadManager:
                                 break
                             elif "Private video" in el or "Video unavailable" in el:
                                 error_summary = "Video unavailable or private"
+                                break
+                            elif "The page needs to be reloaded" in el:
+                                error_summary = "YouTube challenge failed: The page needs to be reloaded (A JavaScript runtime like Deno is required)"
                                 break
                             elif "Requested format is not available" in el:
                                 error_summary = "Requested format not available for this video"
