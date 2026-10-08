@@ -726,5 +726,80 @@ class TestWindowsCompatibility(unittest.TestCase):
                 )
 
 
+class TestAntiBanResilience(unittest.TestCase):
+    """Validates anti-ban mitigations, rate-limit cooldowns, streaming caps, and self-update routines."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="kz_antiban_test_")
+        self.cfg_file = os.path.join(self.tmpdir, "antiban_config.json")
+        self.dm = DownloadManager(config_path=self.cfg_file, auto_start=False)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    @patch("subprocess.Popen")
+    def test_ytdlp_antiban_command_flags(self, mock_popen):
+        proc_mock = MagicMock()
+        proc_mock.returncode = 0
+        proc_mock.stdout = ["Merging formats into \"/tmp/test.mp4\"\n"]
+        mock_popen.return_value = proc_mock
+
+        t = self.dm.enqueue_download("https://youtube.com/watch?v=flags_test", title="Flags Test")
+        self.dm._execute_download(t)
+
+        self.assertTrue(mock_popen.called)
+        cmd_args = mock_popen.call_args[0][0]
+
+        # Verify anti-ban behavioral flags
+        self.assertIn("--sleep-interval", cmd_args)
+        self.assertIn("5", cmd_args)
+        self.assertIn("--max-sleep-interval", cmd_args)
+        self.assertIn("15", cmd_args)
+        self.assertIn("--limit-rate", cmd_args)
+        self.assertIn("5M", cmd_args)
+
+        # Verify commercial client simulation
+        self.assertIn("--extractor-args", cmd_args)
+        self.assertIn("youtube:player_client=android,web", cmd_args)
+
+    @patch("subprocess.Popen")
+    def test_rate_limit_429_activates_cooldown(self, mock_popen):
+        proc_mock = MagicMock()
+        proc_mock.returncode = 1
+        proc_mock.stdout = [
+            "ERROR: [youtube] test: HTTP Error 429: Too Many Requests\n"
+        ]
+        mock_popen.return_value = proc_mock
+
+        t = self.dm.enqueue_download("https://youtube.com/watch?v=rl_test", title="Rate Limit Test")
+        self.dm._execute_download(t)
+
+        self.assertTrue(self.dm.rate_limit_active)
+        self.assertTrue(self.dm.is_paused)
+        self.assertGreater(self.dm.rate_limit_cooldown_until, time.time() + 1700)
+        self.assertIn("429", t["error"])
+
+        status = self.dm.get_queue_status()
+        self.assertTrue(status["rate_limit"]["active"])
+        self.assertGreater(status["rate_limit"]["remaining_seconds"], 0)
+
+        # Test manual dismissal
+        self.dm.dismiss_rate_limit()
+        self.assertFalse(self.dm.rate_limit_active)
+        self.assertFalse(self.dm.is_paused)
+
+    @patch("subprocess.run")
+    def test_check_and_update_ytdlp(self, mock_run):
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        mock_res.stdout = "yt-dlp is up to date"
+        mock_res.stderr = ""
+        mock_run.return_value = mock_res
+
+        res = self.dm.check_and_update_ytdlp(force=True)
+        self.assertTrue(res["success"])
+        self.assertGreater(self.dm.settings.get("last_ytdlp_update_check", 0), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

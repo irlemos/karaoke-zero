@@ -47,6 +47,14 @@
         </select>
       </div>
 
+      <!-- Anti-Ban & Rate Limit Protection Info Button -->
+      <button class="icon-btn info-shield-btn" id="openInfoBtn" title="Anti-Ban & Rate Limit Protection Guide">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="m9 12 2 2 4-4"/>
+        </svg>
+      </button>
+
       <!-- Settings Button -->
       <button class="icon-btn" id="openSettingsBtn" title="Application Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -201,6 +209,34 @@
             <span>Clear</span>
           </button>
         </div>
+      </div>
+
+      <!-- Rate Limit Safety Cooldown Banner -->
+      <div class="rate-limit-banner hidden" id="rateLimitBanner">
+        <div class="rate-limit-banner-content">
+          <div class="rate-limit-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <div class="rate-limit-text">
+            <strong>YouTube Rate Limit Active (HTTP 429)</strong>
+            <p>Queue paused for 30m to protect your IP from bans. Cooldown: <span id="cooldownTimer">30:00</span></p>
+          </div>
+        </div>
+        <div class="rate-limit-actions">
+          <button id="dismissCooldownBtn" class="dismiss-cooldown-btn" title="Override safety delay and resume queue immediately">
+            <span>Resume Now</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Human Pacing Indicator -->
+      <div class="pacing-indicator hidden" id="pacingIndicator">
+        <div class="pacing-spinner"></div>
+        <span>Anti-ban pacing: pausing <strong id="pacingTimer">0s</strong> before next track to protect IP...</span>
       </div>
 
       <!-- Queue Status Cards -->
@@ -434,6 +470,156 @@
             </svg>
             <span>Retry Download</span>
           </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Anti-Ban & Rate Limit Protection Modal -->
+  <div class="modal-overlay hidden" id="infoModal">
+    <div class="modal-card info-modal-card">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div class="shield-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="m9 12 2 2 4-4"/>
+            </svg>
+          </div>
+          <div>
+            <h3>YouTube Rate Limits & Anti-Ban Architecture</h3>
+            <span class="modal-subtitle">Protection guidelines for high-volume catalog downloads</span>
+          </div>
+        </div>
+        <button class="close-modal-btn" id="closeInfoModal">&times;</button>
+      </div>
+
+      <div class="modal-body info-modal-body">
+        <!-- Active Protection Matrix Status Pill -->
+        <div class="protection-status-card">
+          <div class="status-indicator-pulse"></div>
+          <div class="protection-status-text">
+            <strong>Active Anti-Ban Defense Matrix Enabled</strong>
+            <p>KaraokeZero employs randomized human pacing, traffic rate capping, mobile RPC client emulation, and daily autonomous cipher updates to safeguard your residential IP address.</p>
+          </div>
+        </div>
+
+        <!-- 4-Card Grid of Key YouTube Mechanisms -->
+        <div class="info-section-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span>Understanding YouTube Security & Throttling Mechanisms</span>
+        </div>
+
+        <div class="info-grid">
+          <div class="info-item-card">
+            <div class="info-item-header">
+              <span class="info-tag warning">HTTP 429 & 403</span>
+              <h4>IP Soft Bans & Rate Limits</h4>
+            </div>
+            <p>When an IP sends rapid back-to-back video requests without human intervals, YouTube temporarily flags the IP address. This halts downloads and triggers CAPTCHAs across all devices on your Wi-Fi network.</p>
+          </div>
+
+          <div class="info-item-card">
+            <div class="info-item-header">
+              <span class="info-tag danger">25–50 kb/s</span>
+              <h4>Dynamic Speed Throttling</h4>
+            </div>
+            <p>If downloads request whole files abruptly instead of human streaming chunks, YouTube drops stream throughput down to 25–50 kb/s, causing downloads to stall indefinitely.</p>
+          </div>
+
+          <div class="info-item-card">
+            <div class="info-item-header">
+              <span class="info-tag info">base.js</span>
+              <h4>Cipher Signature Obfuscation</h4>
+            </div>
+            <p>YouTube mutates player JavaScript deciphering logic multiple times a week. If download decoders fall behind, streams fail with invalid signatures even without an IP block.</p>
+          </div>
+
+          <div class="info-item-card">
+            <div class="info-item-header">
+              <span class="info-tag accent">JA3 & HTTP/2</span>
+              <h4>Protocol & TLS Fingerprinting</h4>
+            </div>
+            <p>Opening multiple greedy simultaneous connections signals automated scraper activity. YouTube evaluates TLS handshakes and SABR stream chunking compliance.</p>
+          </div>
+        </div>
+
+        <!-- How KaraokeZero Safeguards You -->
+        <div class="info-section-title" style="margin-top: 1.25rem;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          <span>How KaraokeZero Protects Your Network</span>
+        </div>
+
+        <div class="safeguards-list">
+          <div class="safeguard-row">
+            <div class="safeguard-icon">⏱️</div>
+            <div>
+              <strong>Randomized Pacing Delays (5s–15s):</strong>
+              <span>Injects natural, randomized pauses between consecutive songs to emulate realistic browsing patterns.</span>
+            </div>
+          </div>
+          <div class="safeguard-row">
+            <div class="safeguard-icon">🚦</div>
+            <div>
+              <strong>Streaming Bandwidth Cap (5 MB/s):</strong>
+              <span>Prevents burst spikes and mimics human video streaming consumption over real-time playback.</span>
+            </div>
+          </div>
+          <div class="safeguard-row">
+            <div class="safeguard-icon">📱</div>
+            <div>
+              <strong>Mobile Ecosystem Emulation (Android/Web):</strong>
+              <span>Uses official mobile player client RPCs that bypass desktop player bot challenges and CAPTCHA gates.</span>
+            </div>
+          </div>
+          <div class="safeguard-row">
+            <div class="safeguard-icon">🛑</div>
+            <div>
+              <strong>Active 30-Minute Cooldown on HTTP 429:</strong>
+              <span>Immediately halts the download queue on the first sign of rate limiting to let YouTube's counter reset before a permanent ban occurs.</span>
+            </div>
+          </div>
+          <div class="safeguard-row">
+            <div class="safeguard-icon">🔄</div>
+            <div>
+              <strong>Autonomous Daily Self-Updates:</strong>
+              <span>Keeps yt-dlp's cipher signature extractors updated automatically against YouTube's daily player code changes.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Best Practices Box -->
+        <div class="best-practices-box">
+          <strong>💡 Recommended Best Practices:</strong>
+          <ul>
+            <li>Download large repertoires in batches of 50–100 songs rather than thousands at once.</li>
+            <li>If a rate limit occurs, do not spam downloads. Allow the 30-minute cooldown to run or switch network connections.</li>
+            <li>Keep the desktop downloader updated using the button below.</li>
+          </ul>
+        </div>
+
+        <div class="modal-footer info-modal-footer">
+          <div class="ytdlp-status-indicator" id="ytdlpUpdateStatus">
+            <span class="status-dot online"></span>
+            <span id="ytdlpUpdateStatusText">yt-dlp cipher engine ready</span>
+          </div>
+          <div style="display: flex; gap: 0.75rem; align-items: center;">
+            <button id="updateYtdlpBtn" class="secondary-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+              </svg>
+              <span>Check yt-dlp Update</span>
+            </button>
+            <button id="closeInfoModalBtn" class="primary-btn">
+              <span>Got it, thanks!</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -86,6 +86,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const batchLineCount = document.getElementById('batchLineCount');
   const enqueueBatchBtn = document.getElementById('enqueueBatchBtn');
 
+  // Anti-Ban & Rate Limit Elements
+  const openInfoBtn = document.getElementById('openInfoBtn');
+  const infoModal = document.getElementById('infoModal');
+  const closeInfoModal = document.getElementById('closeInfoModal');
+  const closeInfoModalBtn = document.getElementById('closeInfoModalBtn');
+  const updateYtdlpBtn = document.getElementById('updateYtdlpBtn');
+  const ytdlpUpdateStatusText = document.getElementById('ytdlpUpdateStatusText');
+  const rateLimitBanner = document.getElementById('rateLimitBanner');
+  const cooldownTimer = document.getElementById('cooldownTimer');
+  const dismissCooldownBtn = document.getElementById('dismissCooldownBtn');
+  const pacingIndicator = document.getElementById('pacingIndicator');
+  const pacingTimer = document.getElementById('pacingTimer');
+
   // Toast Container
   const toastContainer = document.getElementById('toastContainer');
 
@@ -249,6 +262,77 @@ document.addEventListener('DOMContentLoaded', () => {
   closeSettingsModal.addEventListener('click', () => settingsModal.classList.add('hidden'));
   cancelSettingsBtn.addEventListener('click', () => settingsModal.classList.add('hidden'));
   saveSettingsBtn.addEventListener('click', saveSettings);
+
+  // Anti-Ban & Rate Limit Info Modal Listeners
+  if (openInfoBtn) {
+    openInfoBtn.addEventListener('click', () => {
+      infoModal.classList.remove('hidden');
+    });
+  }
+
+  if (closeInfoModal) {
+    closeInfoModal.addEventListener('click', () => infoModal.classList.add('hidden'));
+  }
+
+  if (closeInfoModalBtn) {
+    closeInfoModalBtn.addEventListener('click', () => infoModal.classList.add('hidden'));
+  }
+
+  // Dismiss Safety Cooldown & Resume Queue
+  if (dismissCooldownBtn) {
+    dismissCooldownBtn.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/queue/cooldown/dismiss', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          rateLimitBanner.classList.add('hidden');
+          showToast('Safety cooldown dismissed. Queue resumed!', 'success');
+          fetchQueueStatus();
+        }
+      } catch (err) {
+        showToast('Failed to resume queue: ' + err.message, 'error');
+      }
+    });
+  }
+
+  // Autonomous yt-dlp Update Button
+  if (updateYtdlpBtn) {
+    updateYtdlpBtn.addEventListener('click', async () => {
+      updateYtdlpBtn.disabled = true;
+      const origHtml = updateYtdlpBtn.innerHTML;
+      updateYtdlpBtn.innerHTML = `
+        <div class="pacing-spinner" style="margin-right: 6px;"></div>
+        <span>Checking...</span>
+      `;
+      if (ytdlpUpdateStatusText) {
+        ytdlpUpdateStatusText.textContent = 'Verifying cipher extractors...';
+      }
+
+      try {
+        const res = await fetch('/api/system/update-ytdlp', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('yt-dlp cipher engine is fully up to date!', 'success');
+          if (ytdlpUpdateStatusText) {
+            ytdlpUpdateStatusText.textContent = 'yt-dlp cipher engine up to date ✓';
+          }
+        } else {
+          showToast('yt-dlp status: ' + (data.output || 'Checked'), 'info');
+          if (ytdlpUpdateStatusText) {
+            ytdlpUpdateStatusText.textContent = 'Engine status: ' + (data.output ? data.output.slice(0, 40) : 'verified');
+          }
+        }
+      } catch (err) {
+        showToast('Error checking yt-dlp updates: ' + err.message, 'error');
+        if (ytdlpUpdateStatusText) {
+          ytdlpUpdateStatusText.textContent = 'Update check error';
+        }
+      } finally {
+        updateYtdlpBtn.disabled = false;
+        updateYtdlpBtn.innerHTML = origHtml;
+      }
+    });
+  }
 
   // =========================================================================
   // Search Mode Tabs (Songs vs Playlists)
@@ -508,6 +592,33 @@ document.addEventListener('DOMContentLoaded', () => {
     statActive.textContent = stats.downloading;
     statQueued.textContent = stats.queued;
     statCompleted.textContent = stats.completed;
+
+    // 1. Update Rate Limit Safety Cooldown Banner
+    if (data.rate_limit && data.rate_limit.active) {
+      if (rateLimitBanner) {
+        rateLimitBanner.classList.remove('hidden');
+        const rem = data.rate_limit.remaining_seconds || 0;
+        const mins = Math.floor(rem / 60);
+        const secs = rem % 60;
+        if (cooldownTimer) {
+          cooldownTimer.textContent = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+        }
+      }
+    } else {
+      if (rateLimitBanner) rateLimitBanner.classList.add('hidden');
+    }
+
+    // 2. Update Human Pacing Indicator
+    if (data.pacing && data.pacing.active) {
+      if (pacingIndicator) {
+        pacingIndicator.classList.remove('hidden');
+        if (pacingTimer) {
+          pacingTimer.textContent = `${data.pacing.remaining_seconds}s`;
+        }
+      }
+    } else {
+      if (pacingIndicator) pacingIndicator.classList.add('hidden');
+    }
 
     if (tasks.length === 0) {
       emptyQueueMsg.style.display = 'flex';

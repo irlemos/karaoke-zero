@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import queue
+import random
 import re
 import shutil
 import subprocess
@@ -343,6 +344,12 @@ class DownloadManager:
         self.active_task_id: Optional[str] = None
         self.completed_count: int = 0
 
+        # Anti-ban and rate limit protection state
+        self.rate_limit_active: bool = False
+        self.rate_limit_cooldown_until: float = 0.0
+        self.rate_limit_reason: str = ""
+        self.pacing_status: Dict[str, Any] = {"active": False, "seconds": 0.0, "until": 0.0}
+
         # Configuration storage
         user_home = os.path.expanduser("~")
         self.config_dir = os.path.join(user_home, ".config", "karaokezero")
@@ -350,10 +357,11 @@ class DownloadManager:
         self.config_file = config_path or os.path.join(self.config_dir, "desktop_downloader.json")
         self.settings: Dict[str, Any] = self._load_settings()
 
-        # Start background worker if requested
+        # Start background worker and daily autonomous yt-dlp update check
         self.worker_thread = None
         if auto_start:
             self.start_worker()
+            threading.Thread(target=self.check_and_update_ytdlp, kwargs={"force": False}, daemon=True).start()
 
     def start_worker(self):
         """Starts background worker thread if not already active."""
@@ -365,7 +373,11 @@ class DownloadManager:
         default_settings = {
             "output_dir": os.path.join(os.path.expanduser("~"), "Music", "KaraokeZero"),
             "default_quality": "480",
-            "max_parallel": 1
+            "max_parallel": 1,
+            "rate_limit_streaming": "5M",
+            "pacing_min_seconds": 5,
+            "pacing_max_seconds": 15,
+            "last_ytdlp_update_check": 0.0
         }
         # Check if an external KaraokeZero HD is already connected
         devs = detect_storage_devices()
@@ -476,6 +488,19 @@ class DownloadManager:
             completed = [t for t in all_tasks if t["status"] == "completed"]
             errors = [t for t in all_tasks if t["status"] == "error"]
 
+            rate_limit_info = {
+                "active": self.rate_limit_active,
+                "cooldown_until": self.rate_limit_cooldown_until,
+                "remaining_seconds": max(0, int(self.rate_limit_cooldown_until - now)) if self.rate_limit_active else 0,
+                "reason": self.rate_limit_reason
+            }
+            pacing_active = bool(self.pacing_status.get("active") and self.pacing_status.get("until", 0) > now)
+            pacing_info = {
+                "active": pacing_active,
+                "seconds": self.pacing_status.get("seconds", 0.0),
+                "remaining_seconds": max(0, round(self.pacing_status.get("until", 0) - now, 1)) if pacing_active else 0.0
+            }
+
             return {
                 "is_paused": self.is_paused,
                 "active": active,
@@ -484,7 +509,9 @@ class DownloadManager:
                 "errors": errors,
                 "completed_count": self.completed_count,
                 "total_count": len(all_tasks),
-                "tasks": all_tasks
+                "tasks": all_tasks,
+                "rate_limit": rate_limit_info,
+                "pacing": pacing_info
             }
 
     def cancel_task(self, task_id: str) -> bool:
@@ -583,9 +610,86 @@ class DownloadManager:
             logger.info("Download queue paused: %s", paused)
             return self.is_paused
 
+    def dismiss_rate_limit(self) -> bool:
+        """Manually dismisses rate limit cooldown and resumes queue."""
+        with self.lock:
+            self.rate_limit_active = False
+            self.rate_limit_cooldown_until = 0.0
+            self.rate_limit_reason = ""
+            self.is_paused = False
+        logger.info("YouTube rate limit cooldown dismissed manually by user.")
+        return True
+
+    def check_and_update_ytdlp(self, force: bool = False) -> Dict[str, Any]:
+        """
+        Checks for yt-dlp updates and updates the binary if last check was > 24 hours ago
+        or if forced. Updates cipher decoders against YouTube's evolving base.js.
+        """
+        now = time.time()
+        last_check = float(self.settings.get("last_ytdlp_update_check", 0) or 0)
+        # 24 hours = 86400 seconds
+        if not force and (now - last_check) < 86400:
+            return {
+                "success": True,
+                "status": "cached",
+                "message": "yt-dlp is already up to date for today.",
+                "last_check": last_check
+            }
+
+        ytdlp_cmd = resolve_ytdlp_command()
+        bin_target = ytdlp_cmd[0]
+        logger.info("Checking for yt-dlp updates (target: %s)...", bin_target)
+
+        update_success = False
+        output = ""
+        try:
+            cmd = [bin_target, "-U"]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            output = (res.stdout + "\n" + res.stderr).strip()
+            if res.returncode == 0:
+                update_success = True
+                logger.info("yt-dlp update check completed: %s", output.splitlines()[-1] if output else "OK")
+            else:
+                logger.info("yt-dlp -U output (code %d): %s", res.returncode, output)
+                if "up to date" in output.lower():
+                    update_success = True
+                elif "not supported" in output.lower() or "pip" in output.lower():
+                    pip_res = subprocess.run(
+                        [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"],
+                        capture_output=True, text=True, timeout=60
+                    )
+                    if pip_res.returncode == 0:
+                        update_success = True
+                        output = "Updated via pip"
+        except Exception as e:
+            logger.warning("Error running yt-dlp update: %s", e)
+            output = str(e)
+
+        self.save_settings({"last_ytdlp_update_check": now})
+        return {
+            "success": update_success,
+            "status": "updated" if update_success else ("ok" if "up to date" in output.lower() else "notice"),
+            "output": output,
+            "last_check": now
+        }
+
     def _worker_loop(self):
         while True:
             try:
+                # 1. Check rate limit cooldown status (HTTP 429 mitigation)
+                if self.rate_limit_active:
+                    now = time.time()
+                    if now < self.rate_limit_cooldown_until:
+                        time.sleep(1.0)
+                        continue
+                    else:
+                        with self.lock:
+                            self.rate_limit_active = False
+                            self.rate_limit_cooldown_until = 0.0
+                            self.rate_limit_reason = ""
+                            self.is_paused = False
+                        logger.info("YouTube rate limit cooldown expired! Resuming download queue.")
+
                 if self.is_paused:
                     time.sleep(0.5)
                     continue
@@ -596,7 +700,7 @@ class DownloadManager:
                     continue
 
                 with self.lock:
-                    if self.is_paused:
+                    if self.is_paused or self.rate_limit_active:
                         self.queue.put(task_id)
                         time.sleep(0.3)
                         continue
@@ -612,10 +716,39 @@ class DownloadManager:
                 with self.lock:
                     self.active_task_id = None
                     self.current_process = None
+
+                # 2. Behavioral Mitigation: Randomized pacing delay between consecutive downloads
+                has_pending = False
+                with self.lock:
+                    has_pending = any(t.get("status") == "queued" for t in self.tasks.values())
+                    is_active = not self.is_paused and not self.rate_limit_active
+
+                if has_pending and is_active:
+                    min_sec = float(self.settings.get("pacing_min_seconds", 5))
+                    max_sec = float(self.settings.get("pacing_max_seconds", 15))
+                    pacing_delay = random.uniform(min_sec, max_sec)
+                    with self.lock:
+                        self.pacing_status = {
+                            "active": True,
+                            "seconds": round(pacing_delay, 1),
+                            "until": time.time() + pacing_delay
+                        }
+                    logger.info("Anti-ban human pacing: sleeping %.1fs before next download...", pacing_delay)
+
+                    slept = 0.0
+                    while slept < pacing_delay:
+                        if self.is_paused or self.rate_limit_active:
+                            break
+                        time.sleep(0.5)
+                        slept += 0.5
+
+                    with self.lock:
+                        self.pacing_status = {"active": False, "seconds": 0.0, "until": 0.0}
+
             except Exception as e:
                 logger.exception("Worker loop exception: %s", e)
             finally:
-                time.sleep(1.0)
+                time.sleep(0.5)
 
     def _execute_download(self, task: Dict[str, Any]):
         task_id = task["id"]
@@ -650,13 +783,19 @@ class DownloadManager:
         archive_path = os.path.join(output_dir, "download_archive.txt")
 
         # Essential flags:
-        # --extractor-args youtube:player_client=android,web bypasses YouTube "Sign in to confirm you're not a bot" challenge
+        # --extractor-args youtube:player_client=android,web bypasses YouTube bot checks
+        # --sleep-interval 5 --max-sleep-interval 15 enforces randomized delays
+        # --limit-rate 5M restricts burst bandwidth to mimic real-time video streaming
+        rate_limit = self.settings.get("rate_limit_streaming", "5M")
         cmd = ytdlp_cmd + [
             "--no-playlist",
             "-f", format_spec,
             "-S", "vcodec:h264,res,acodec:m4a",
             "--merge-output-format", "mp4",
             "--extractor-args", "youtube:player_client=android,web",
+            "--sleep-interval", "5",
+            "--max-sleep-interval", "15",
+            "--limit-rate", rate_limit,
             "--socket-timeout", "30",
             "--retries", "3",
             "--fragment-retries", "3",
@@ -755,6 +894,18 @@ class DownloadManager:
                 else:
                     task["status"] = "error"
 
+                    # Check if error was caused by rate limiting (HTTP 429)
+                    is_rate_limited = any("429" in l or "Too Many Requests" in l for l in output_lines)
+                    if is_rate_limited:
+                        cooldown_secs = 30 * 60  # 30-minute safety cooldown
+                        self.rate_limit_active = True
+                        self.rate_limit_cooldown_until = time.time() + cooldown_secs
+                        self.rate_limit_reason = "YouTube rate limit (HTTP 429: Too Many Requests) detected."
+                        self.is_paused = True
+                        logger.warning(
+                            "YouTube rate limit (HTTP 429) detected! Automatically suspending download queue for 30 minutes to safeguard IP address."
+                        )
+
                     # Synthesize clear, meaningful human-readable error summary
                     error_summary = None
                     if error_lines:
@@ -762,7 +913,7 @@ class DownloadManager:
                             if "Sign in to confirm you" in el:
                                 error_summary = "YouTube bot check: Sign in to confirm you're not a bot"
                                 break
-                            elif "HTTP Error 429" in el:
+                            elif "HTTP Error 429" in el or "429" in el:
                                 error_summary = "YouTube rate limited (HTTP 429: Too Many Requests)"
                                 break
                             elif "Private video" in el or "Video unavailable" in el:

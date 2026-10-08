@@ -255,6 +255,36 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
             })
             return
 
+        # 5. API: Anti-Ban Security & Resilience Status
+        if path == "/api/system/security":
+            now = time.time()
+            self._send_json(200, {
+                "success": True,
+                "status": "ok",
+                "mitigations": {
+                    "random_pauses": True,
+                    "pacing_min_seconds": download_mgr.settings.get("pacing_min_seconds", 5),
+                    "pacing_max_seconds": download_mgr.settings.get("pacing_max_seconds", 15),
+                    "streaming_rate_cap": download_mgr.settings.get("rate_limit_streaming", "5M"),
+                    "client_emulation": "android,web",
+                    "autonomous_daily_updates": True,
+                    "cooldown_on_429_minutes": 30
+                },
+                "rate_limit": {
+                    "active": download_mgr.rate_limit_active,
+                    "cooldown_until": download_mgr.rate_limit_cooldown_until,
+                    "remaining_seconds": max(0, int(download_mgr.rate_limit_cooldown_until - now)) if download_mgr.rate_limit_active else 0,
+                    "reason": download_mgr.rate_limit_reason
+                },
+                "pacing": {
+                    "active": bool(download_mgr.pacing_status.get("active") and download_mgr.pacing_status.get("until", 0) > now),
+                    "seconds": download_mgr.pacing_status.get("seconds", 0.0),
+                    "remaining_seconds": max(0, round(download_mgr.pacing_status.get("until", 0) - now, 1)) if download_mgr.pacing_status.get("active") else 0.0
+                },
+                "last_ytdlp_update_check": download_mgr.settings.get("last_ytdlp_update_check", 0)
+            })
+            return
+
         # 5. Serve Web Static Assets
         if path in ("/", "/index.html"):
             target_file = os.path.join(STATIC_DIR, "index.html")
@@ -408,6 +438,22 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
                 "quality": updated.get("default_quality"),
                 "settings": updated
             })
+            return
+
+        # 7. API: Dismiss Rate Limit Cooldown & Resume Queue
+        if path in ("/api/queue/cooldown/dismiss", "/api/queue/dismiss-cooldown"):
+            download_mgr.dismiss_rate_limit()
+            self._send_json(200, {
+                "success": True,
+                "status": "ok",
+                "message": "Rate limit cooldown dismissed manually. Queue resumed."
+            })
+            return
+
+        # 8. API: Trigger Autonomous yt-dlp Update Check
+        if path == "/api/system/update-ytdlp":
+            res = download_mgr.check_and_update_ytdlp(force=True)
+            self._send_json(200, res)
             return
 
         self._send_json(404, {"success": False, "status": "error", "error": f"POST endpoint not found: {path}"})
