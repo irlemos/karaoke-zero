@@ -378,6 +378,7 @@ class DownloadManager:
             "pacing_min_seconds": 5,
             "pacing_max_seconds": 15,
             "browser_cookies": "none",
+            "search_karaoke_only": True,
             "last_ytdlp_update_check": 0.0
         }
         # Check if an external KaraokeZero HD is already connected
@@ -777,14 +778,14 @@ class DownloadManager:
             logger.error("yt-dlp not found: %s", bin_target)
             return
 
-        # Target H.264 video + AAC/M4A audio in MP4 container for smooth Pi Zero hardware playback
-        # Resilient format fallback handles YouTube changes without failing downloads
-        format_spec = f"bestvideo[height<={quality}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best"
-        sort_spec = f"res:{quality},vcodec:h264,acodec:m4a"
+        # Target highest audio quality available (bestaudio with abr priority) + video within selected resolution
+        format_spec = f"bestvideo[height<={quality}][vcodec^=avc1]+bestaudio/bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best"
+        sort_spec = f"res:{quality},abr,vcodec:h264"
         output_template = os.path.join(output_dir, "%(title)s [%(id)s].%(ext)s")
         archive_path = os.path.join(output_dir, "download_archive.txt")
 
         # Essential flags:
+        # --audio-quality 0 extracts and preserves highest audio fidelity available
         # --limit-rate 5M restricts burst bandwidth to mimic real-time video streaming
         # --sleep-requests throttles rapid API calls during extraction
         rate_limit = self.settings.get("rate_limit_streaming", "5M")
@@ -792,6 +793,7 @@ class DownloadManager:
             "--no-playlist",
             "-f", format_spec,
             "-S", sort_spec,
+            "--audio-quality", "0",
             "--merge-output-format", "mp4",
             "--limit-rate", rate_limit,
             "--sleep-requests", "1.5",

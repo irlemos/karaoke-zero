@@ -172,26 +172,47 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/search":
             q = query_params.get("q", [""])[0].strip()
             search_type = query_params.get("type", ["videos"])[0].lower()
-            max_r = int(query_params.get("limit", [15])[0])
+            max_r = int(query_params.get("limit", [24])[0])
+            continuation = query_params.get("continuation", [None])[0]
+            if continuation == "":
+                continuation = None
+
+            # Check karaoke filter parameter: override via query param, fallback to settings
+            karaoke_param = query_params.get("karaoke", [None])[0]
+            if karaoke_param is not None:
+                append_karaoke = karaoke_param.lower() in ("true", "1", "yes")
+            else:
+                append_karaoke = bool(download_mgr.settings.get("search_karaoke_only", True))
 
             if search_type == "playlists":
-                results = search_playlists(q, max_results=max_r)
+                results = search_playlists(q, max_results=max_r, append_karaoke=append_karaoke)
                 self._send_json(200, {
                     "success": True,
                     "status": "ok",
                     "type": "playlists",
                     "results": results,
-                    "count": len(results)
+                    "count": len(results),
+                    "continuation": None,
+                    "has_more": False
                 })
             else:
                 ytdlp_cmd = resolve_ytdlp_command()
-                results = search_youtube(q, max_results=max_r, ytdlp_cmd=ytdlp_cmd)
+                search_data = search_youtube(
+                    q,
+                    max_results=max_r,
+                    ytdlp_cmd=ytdlp_cmd,
+                    append_karaoke=append_karaoke,
+                    continuation=continuation,
+                    return_dict=True
+                )
                 self._send_json(200, {
                     "success": True,
                     "status": "ok",
                     "type": "videos",
-                    "results": results,
-                    "count": len(results)
+                    "results": search_data.get("items", []),
+                    "count": len(search_data.get("items", [])),
+                    "continuation": search_data.get("continuation"),
+                    "has_more": search_data.get("has_more", False)
                 })
             return
 
@@ -245,6 +266,7 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
                 "quality": download_mgr.settings.get("default_quality", "480"),
                 "default_quality": download_mgr.settings.get("default_quality", "480"),
                 "browser_cookies": download_mgr.settings.get("browser_cookies", "none"),
+                "search_karaoke_only": download_mgr.settings.get("search_karaoke_only", True),
                 "available_drives": devices,
                 "storage_devices": devices,
                 "settings": download_mgr.settings,
@@ -432,6 +454,8 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
                 new_cfg["default_quality"] = str(q_val)
             if "browser_cookies" in body:
                 new_cfg["browser_cookies"] = str(body["browser_cookies"])
+            if "search_karaoke_only" in body:
+                new_cfg["search_karaoke_only"] = bool(body["search_karaoke_only"])
 
             updated = download_mgr.save_settings(new_cfg)
             self._send_json(200, {
@@ -440,6 +464,7 @@ class DownloaderRequestHandler(BaseHTTPRequestHandler):
                 "output_dir": updated.get("output_dir"),
                 "quality": updated.get("default_quality"),
                 "browser_cookies": updated.get("browser_cookies", "none"),
+                "search_karaoke_only": updated.get("search_karaoke_only", True),
                 "settings": updated
             })
             return

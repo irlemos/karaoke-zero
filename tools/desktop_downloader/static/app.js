@@ -55,10 +55,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const detectedDrivesList = document.getElementById('detectedDrivesList');
   const customOutputDirInput = document.getElementById('customOutputDirInput');
   const browserCookiesSelect = document.getElementById('browserCookiesSelect');
+  const searchKaraokeOnlyCheckbox = document.getElementById('searchKaraokeOnlyCheckbox');
 
-  // Search Type Tabs
+  // Search Type Tabs & Karaoke Quick Filter
   const tabSongsBtn = document.getElementById('tabSongsBtn');
   const tabPlaylistsBtn = document.getElementById('tabPlaylistsBtn');
+  const karaokeFilterToggle = document.getElementById('karaokeFilterToggle');
+  const karaokeFilterToggleLabel = document.getElementById('karaokeFilterToggleLabel');
+
+  // Load More Pagination Elements
+  const loadMoreContainer = document.getElementById('loadMoreContainer');
+  const loadMoreBtn = document.getElementById('loadMoreBtn');
+  const loadMoreBtnText = document.getElementById('loadMoreBtnText');
+  const loadMoreSpinner = document.getElementById('loadMoreSpinner');
 
   // Playlist Modal Elements
   const openPlaylistModalBtn = document.getElementById('openPlaylistModalBtn');
@@ -107,13 +116,37 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentSettings = {
     output_dir: '',
     quality: '480',
-    available_drives: []
+    available_drives: [],
+    search_karaoke_only: true
   };
+  let isKaraokeFilterEnabled = true;
+  let currentSearchQuery = '';
+  let currentContinuation = null;
+  let totalLoadedCount = 0;
   let currentSearchType = 'videos';
   let currentPlaylistTracks = [];
   let isQueuePaused = false;
   let enqueuedVideoUrls = new Set();
   let enqueuedPlaylistUrls = new Set();
+
+  function updateKaraokeFilterUI() {
+    if (searchKaraokeOnlyCheckbox) {
+      searchKaraokeOnlyCheckbox.checked = isKaraokeFilterEnabled;
+    }
+    if (karaokeFilterToggle) {
+      if (isKaraokeFilterEnabled) {
+        karaokeFilterToggle.classList.add('active');
+        if (karaokeFilterToggleLabel) {
+          karaokeFilterToggleLabel.textContent = 'Karaoke Mode: ON';
+        }
+      } else {
+        karaokeFilterToggle.classList.remove('active');
+        if (karaokeFilterToggleLabel) {
+          karaokeFilterToggleLabel.textContent = 'Karaoke Mode: OFF';
+        }
+      }
+    }
+  }
 
   // =========================================================================
   // Toast Notifications
@@ -149,6 +182,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (browserCookiesSelect) {
         browserCookiesSelect.value = cookiesVal;
       }
+
+      if (data.search_karaoke_only !== undefined) {
+        isKaraokeFilterEnabled = Boolean(data.search_karaoke_only);
+      } else if (data.settings && data.settings.search_karaoke_only !== undefined) {
+        isKaraokeFilterEnabled = Boolean(data.settings.search_karaoke_only);
+      }
+      updateKaraokeFilterUI();
 
       if (data.output_dir) {
         const parts = data.output_dir.split('/');
@@ -217,6 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const newDir = customOutputDirInput.value.trim();
     const newQuality = qualitySelect.value;
     const cookiesVal = browserCookiesSelect ? browserCookiesSelect.value : 'none';
+    const karaokeFilterVal = searchKaraokeOnlyCheckbox ? searchKaraokeOnlyCheckbox.checked : isKaraokeFilterEnabled;
 
     if (!newDir) {
       showToast('Destination path cannot be empty', 'warning');
@@ -230,7 +271,8 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({
           output_dir: newDir,
           quality: newQuality,
-          browser_cookies: cookiesVal
+          browser_cookies: cookiesVal,
+          search_karaoke_only: karaokeFilterVal
         })
       });
 
@@ -239,6 +281,9 @@ document.addEventListener('DOMContentLoaded', () => {
         currentSettings.output_dir = newDir;
         currentSettings.quality = newQuality;
         currentSettings.browser_cookies = cookiesVal;
+        currentSettings.search_karaoke_only = karaokeFilterVal;
+        isKaraokeFilterEnabled = karaokeFilterVal;
+        updateKaraokeFilterUI();
         const parts = newDir.split('/');
         currentStorageLabel.textContent = parts[parts.length - 1] || newDir;
         currentStorageLabel.title = newDir;
@@ -271,6 +316,32 @@ document.addEventListener('DOMContentLoaded', () => {
   closeSettingsModal.addEventListener('click', () => settingsModal.classList.add('hidden'));
   cancelSettingsBtn.addEventListener('click', () => settingsModal.classList.add('hidden'));
   saveSettingsBtn.addEventListener('click', saveSettings);
+
+  // Quick Karaoke Filter Toggle Button Listener
+  if (karaokeFilterToggle) {
+    karaokeFilterToggle.addEventListener('click', async () => {
+      isKaraokeFilterEnabled = !isKaraokeFilterEnabled;
+      updateKaraokeFilterUI();
+      showToast(
+        isKaraokeFilterEnabled ? 'Karaoke search filter enabled' : 'Karaoke filter disabled (all videos enabled)',
+        'info'
+      );
+      try {
+        await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ search_karaoke_only: isKaraokeFilterEnabled })
+        });
+      } catch (e) {
+        console.debug('Failed to auto-save filter toggle:', e);
+      }
+
+      const q = searchInput.value.trim();
+      if (q) {
+        performSearch(q, false);
+      }
+    });
+  }
 
   // Anti-Ban & Rate Limit Info Modal Listeners
   if (openInfoBtn) {
@@ -370,56 +441,99 @@ document.addEventListener('DOMContentLoaded', () => {
   if (tabPlaylistsBtn) tabPlaylistsBtn.addEventListener('click', () => setSearchType('playlists'));
 
   // =========================================================================
-  // YouTube Search & Results
+  // YouTube Search & Results (with Pagination and Karaoke Filter)
   // =========================================================================
-  async function performSearch(query) {
+  async function performSearch(query, isLoadMore = false) {
     const q = (query || searchInput.value).trim();
-    if (!q) return;
+    if (!q && !currentSearchQuery) return;
 
     // Check if user pasted a YouTube playlist link directly in search bar
-    if (q.includes('youtube.com/playlist') || q.includes('list=')) {
+    if (!isLoadMore && (q.includes('youtube.com/playlist') || q.includes('list='))) {
       playlistUrlInput.value = q;
       playlistModal.classList.remove('hidden');
       inspectPlaylist();
       return;
     }
 
-    resultsTitle.textContent = currentSearchType === 'playlists' ? `Playlists for "${q}"` : `Results for "${q}"`;
-    resultsCount.textContent = 'Searching...';
-    searchLoader.classList.remove('hidden');
-    resultsGrid.innerHTML = '';
+    if (!isLoadMore) {
+      currentSearchQuery = q;
+      currentContinuation = null;
+      totalLoadedCount = 0;
+      resultsTitle.textContent = currentSearchType === 'playlists' ? `Playlists for "${q}"` : `Results for "${q}"`;
+      resultsCount.textContent = 'Searching...';
+      searchLoader.classList.remove('hidden');
+      resultsGrid.innerHTML = '';
+      if (loadMoreContainer) loadMoreContainer.classList.add('hidden');
+    } else {
+      if (loadMoreBtn) loadMoreBtn.disabled = true;
+      if (loadMoreSpinner) loadMoreSpinner.classList.remove('hidden');
+      if (loadMoreBtnText) loadMoreBtnText.textContent = 'Loading more...';
+    }
 
     try {
-      const res = await fetch(`/api/search?type=${currentSearchType}&q=${encodeURIComponent(q)}`);
+      let searchUrl = `/api/search?type=${currentSearchType}&q=${encodeURIComponent(currentSearchQuery)}&limit=24&karaoke=${isKaraokeFilterEnabled}`;
+      if (isLoadMore && currentContinuation) {
+        searchUrl += `&continuation=${encodeURIComponent(currentContinuation)}`;
+      }
+
+      const res = await fetch(searchUrl);
       const data = await res.json();
       searchLoader.classList.add('hidden');
 
-      if (!data.results || data.results.length === 0) {
+      if (isLoadMore) {
+        if (loadMoreBtn) loadMoreBtn.disabled = false;
+        if (loadMoreSpinner) loadMoreSpinner.classList.add('hidden');
+        if (loadMoreBtnText) loadMoreBtnText.textContent = 'Load More Results';
+      }
+
+      const items = data.results || [];
+      if (!isLoadMore && items.length === 0) {
         resultsCount.textContent = 'No results found';
         resultsGrid.innerHTML = `
           <div class="empty-queue-placeholder" style="grid-column: 1 / -1; padding: 3rem 1rem;">
-            <p>No ${currentSearchType === 'playlists' ? 'playlists' : 'karaoke tracks'} found for "${escapeHtml(q)}"</p>
+            <p>No ${currentSearchType === 'playlists' ? 'playlists' : 'tracks'} found for "${escapeHtml(currentSearchQuery)}"</p>
             <span>Try searching for artist name, genre, or band</span>
           </div>
         `;
+        if (loadMoreContainer) loadMoreContainer.classList.add('hidden');
         return;
       }
 
-      resultsCount.textContent = `${data.results.length} ${currentSearchType === 'playlists' ? 'playlists' : 'songs'} found`;
+      totalLoadedCount += items.length;
+      currentContinuation = data.continuation || null;
+      const hasMore = Boolean(data.has_more && currentContinuation);
+
+      resultsCount.textContent = `${totalLoadedCount} ${currentSearchType === 'playlists' ? 'playlists' : 'songs'} displayed`;
+
       if (currentSearchType === 'playlists') {
-        renderPlaylistResults(data.results);
+        renderPlaylistResults(items, isLoadMore);
       } else {
-        renderSearchResults(data.results);
+        renderSearchResults(items, isLoadMore);
+      }
+
+      if (loadMoreContainer) {
+        if (hasMore && currentSearchType === 'videos') {
+          loadMoreContainer.classList.remove('hidden');
+        } else {
+          loadMoreContainer.classList.add('hidden');
+        }
       }
     } catch (err) {
       searchLoader.classList.add('hidden');
+      if (isLoadMore) {
+        if (loadMoreBtn) loadMoreBtn.disabled = false;
+        if (loadMoreSpinner) loadMoreSpinner.classList.add('hidden');
+        if (loadMoreBtnText) loadMoreBtnText.textContent = 'Load More Results';
+      }
       resultsCount.textContent = 'Search failed';
       showToast('Search error: ' + err.message, 'error');
     }
   }
 
-  function renderSearchResults(items) {
-    resultsGrid.innerHTML = '';
+  function renderSearchResults(items, isAppend = false) {
+    if (!isAppend) {
+      resultsGrid.innerHTML = '';
+    }
     items.forEach(item => {
       const card = document.createElement('div');
       card.className = 'video-card';
@@ -456,8 +570,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function renderPlaylistResults(items) {
-    resultsGrid.innerHTML = '';
+  function renderPlaylistResults(items, isAppend = false) {
+    if (!isAppend) {
+      resultsGrid.innerHTML = '';
+    }
     items.forEach(pl => {
       const card = document.createElement('div');
       card.className = 'video-card playlist-card';
@@ -561,6 +677,15 @@ document.addEventListener('DOMContentLoaded', () => {
   searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') performSearch();
   });
+
+  // Load More Pagination Button
+  if (loadMoreBtn) {
+    loadMoreBtn.addEventListener('click', () => {
+      if (currentSearchQuery && currentContinuation) {
+        performSearch(currentSearchQuery, true);
+      }
+    });
+  }
 
   // Popular tag clicks
   document.querySelectorAll('.genre-tag').forEach(tag => {

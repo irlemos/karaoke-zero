@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 try:
     from download_manager import sanitize_filename
@@ -45,47 +45,60 @@ def parse_duration_seconds(duration_str: str) -> int:
     return 0
 
 
-def search_youtube(query: str, max_results: int = 15, ytdlp_cmd: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+def search_youtube(
+    query: str,
+    max_results: int = 24,
+    ytdlp_cmd: Optional[List[str]] = None,
+    append_karaoke: bool = True,
+    continuation: Optional[str] = None,
+    return_dict: bool = False
+) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
     """
-    Searches YouTube for karaoke videos and returns rich metadata including
+    Searches YouTube for videos and returns rich metadata including
     high-resolution thumbnails, duration, channel name, and video ID.
+    Supports pagination via Innertube continuation tokens and karaoke filtering toggles.
     Zero external pip dependencies (pure Python standard library).
     """
     clean_query = query.strip()
-    if not clean_query:
-        return []
+    if not clean_query and not continuation:
+        return {"items": [], "continuation": None, "has_more": False} if return_dict else []
 
-    # 1. Direct YouTube video URL or 11-char video ID detection
-    url_match = re.search(r"(?:v=|youtu\.be\/|embed\/|^)([A-Za-z0-9_-]{11})(?:[&?]|$)", clean_query)
-    if url_match and ("youtube.com" in clean_query or "youtu.be" in clean_query or len(clean_query) == 11):
-        vid = url_match.group(1)
-        try:
-            oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={vid}&format=json"
-            req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=6) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                return [{
+    # 1. Direct YouTube video URL or 11-char video ID detection (only on initial search)
+    if clean_query and not continuation:
+        url_match = re.search(r"(?:v=|youtu\.be\/|embed\/|^)([A-Za-z0-9_-]{11})(?:[&?]|$)", clean_query)
+        if url_match and ("youtube.com" in clean_query or "youtu.be" in clean_query or len(clean_query) == 11):
+            vid = url_match.group(1)
+            single_item = None
+            try:
+                oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={vid}&format=json"
+                req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=6) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    single_item = [{
+                        "id": vid,
+                        "title": data.get("title") or f"YouTube Video ({vid})",
+                        "uploader": data.get("author_name") or "YouTube",
+                        "duration": "",
+                        "thumbnail": data.get("thumbnail_url") or f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
+                        "url": f"https://www.youtube.com/watch?v={vid}"
+                    }]
+            except Exception as e:
+                logger.debug("Direct oEmbed lookup error for %s: %s", vid, e)
+                single_item = [{
                     "id": vid,
-                    "title": data.get("title") or f"YouTube Video ({vid})",
-                    "uploader": data.get("author_name") or "YouTube",
+                    "title": f"YouTube Video ({vid})",
+                    "uploader": "YouTube",
                     "duration": "",
-                    "thumbnail": data.get("thumbnail_url") or f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
+                    "thumbnail": f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
                     "url": f"https://www.youtube.com/watch?v={vid}"
                 }]
-        except Exception as e:
-            logger.debug("Direct oEmbed lookup error for %s: %s", vid, e)
-            return [{
-                "id": vid,
-                "title": f"YouTube Video ({vid})",
-                "uploader": "YouTube",
-                "duration": "",
-                "thumbnail": f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
-                "url": f"https://www.youtube.com/watch?v={vid}"
-            }]
+            if return_dict:
+                return {"items": single_item, "continuation": None, "has_more": False}
+            return single_item
 
     # 2. Primary Engine: YouTube Innertube API (Runs in ~250ms, zero CPU overhead)
     search_term = clean_query
-    if "karaoke" not in search_term.lower():
+    if append_karaoke and "karaoke" not in search_term.lower():
         search_term = f"{clean_query} karaoke"
 
     try:
@@ -94,51 +107,108 @@ def search_youtube(query: str, max_results: int = 15, ytdlp_cmd: Optional[List[s
             "Content-Type": "application/json",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
-        payload = {
-            "context": {
-                "client": {
-                    "clientName": "WEB",
-                    "clientVersion": "2.20240101.01.00"
-                }
-            },
-            "query": search_term
+        client_context = {
+            "clientName": "WEB",
+            "clientVersion": "2.20240101.01.00"
         }
+
+        if continuation:
+            payload = {
+                "context": {"client": client_context},
+                "continuation": continuation
+            }
+        else:
+            payload = {
+                "context": {"client": client_context},
+                "query": search_term
+            }
+
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
         with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
-        sections = data.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get("primaryContents", {}).get("sectionListRenderer", {}).get("contents", [])
         results: List[Dict[str, Any]] = []
+        next_continuation = None
 
-        for sec in sections:
-            items = sec.get("itemSectionRenderer", {}).get("contents", [])
-            for it in items:
-                v = it.get("videoRenderer")
-                if v and "videoId" in v:
-                    vid = v["videoId"]
-                    title = "".join(r.get("text", "") for r in v.get("title", {}).get("runs", []))
-                    uploader = "".join(r.get("text", "") for r in v.get("ownerText", {}).get("runs", []))
-                    duration = v.get("lengthText", {}).get("simpleText", "")
-                    thumbs = v.get("thumbnail", {}).get("thumbnails", [])
-                    thumb = thumbs[-1].get("url") if thumbs else f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+        if continuation:
+            # Parse paginated continuation response
+            commands = data.get("onResponseReceivedCommands", [])
+            for cmd_obj in commands:
+                continuation_items = cmd_obj.get("appendContinuationItemsAction", {}).get("continuationItems", [])
+                for cit in continuation_items:
+                    # Check for subsequent continuation token
+                    if "continuationItemRenderer" in cit:
+                        next_continuation = cit["continuationItemRenderer"].get("continuationEndpoint", {}).get("continuationCommand", {}).get("token")
 
-                    results.append({
-                        "id": vid,
-                        "title": sanitize_filename(title) if title else "Unknown Title",
-                        "uploader": uploader or "Unknown Artist",
-                        "channel": uploader or "Unknown Artist",
-                        "duration": duration,
-                        "duration_sec": parse_duration_seconds(duration),
-                        "thumbnail": thumb,
-                        "url": f"https://www.youtube.com/watch?v={vid}"
-                    })
-                    if len(results) >= max_results:
-                        break
-            if len(results) >= max_results:
-                break
+                    # Check for video items inside section
+                    sec_items = cit.get("itemSectionRenderer", {}).get("contents", [])
+                    for sub_it in sec_items:
+                        if "continuationItemRenderer" in sub_it:
+                            next_continuation = sub_it["continuationItemRenderer"].get("continuationEndpoint", {}).get("continuationCommand", {}).get("token")
+                        v = sub_it.get("videoRenderer")
+                        if v and "videoId" in v:
+                            vid = v["videoId"]
+                            title = "".join(r.get("text", "") for r in v.get("title", {}).get("runs", []))
+                            uploader = "".join(r.get("text", "") for r in v.get("ownerText", {}).get("runs", []))
+                            duration = v.get("lengthText", {}).get("simpleText", "")
+                            thumbs = v.get("thumbnail", {}).get("thumbnails", [])
+                            thumb = thumbs[-1].get("url") if thumbs else f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+
+                            results.append({
+                                "id": vid,
+                                "title": sanitize_filename(title) if title else "Unknown Title",
+                                "uploader": uploader or "Unknown Artist",
+                                "channel": uploader or "Unknown Artist",
+                                "duration": duration,
+                                "duration_sec": parse_duration_seconds(duration),
+                                "thumbnail": thumb,
+                                "url": f"https://www.youtube.com/watch?v={vid}"
+                            })
+                            if len(results) >= max_results:
+                                break
+        else:
+            # Parse initial search results
+            sections = data.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get("primaryContents", {}).get("sectionListRenderer", {}).get("contents", [])
+            for sec in sections:
+                if "continuationItemRenderer" in sec:
+                    next_continuation = sec["continuationItemRenderer"].get("continuationEndpoint", {}).get("continuationCommand", {}).get("token")
+
+                items = sec.get("itemSectionRenderer", {}).get("contents", [])
+                for it in items:
+                    if "continuationItemRenderer" in it:
+                        next_continuation = it["continuationItemRenderer"].get("continuationEndpoint", {}).get("continuationCommand", {}).get("token")
+                    v = it.get("videoRenderer")
+                    if v and "videoId" in v:
+                        vid = v["videoId"]
+                        title = "".join(r.get("text", "") for r in v.get("title", {}).get("runs", []))
+                        uploader = "".join(r.get("text", "") for r in v.get("ownerText", {}).get("runs", []))
+                        duration = v.get("lengthText", {}).get("simpleText", "")
+                        thumbs = v.get("thumbnail", {}).get("thumbnails", [])
+                        thumb = thumbs[-1].get("url") if thumbs else f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+
+                        results.append({
+                            "id": vid,
+                            "title": sanitize_filename(title) if title else "Unknown Title",
+                            "uploader": uploader or "Unknown Artist",
+                            "channel": uploader or "Unknown Artist",
+                            "duration": duration,
+                            "duration_sec": parse_duration_seconds(duration),
+                            "thumbnail": thumb,
+                            "url": f"https://www.youtube.com/watch?v={vid}"
+                        })
+                        if len(results) >= max_results:
+                            break
+                if len(results) >= max_results and next_continuation:
+                    break
 
         if results:
-            logger.info("YouTube Innertube search found %d results for '%s'", len(results), search_term)
+            logger.info("YouTube Innertube search found %d results for '%s' (has_more: %s)", len(results), search_term, bool(next_continuation))
+            if return_dict:
+                return {
+                    "items": results,
+                    "continuation": next_continuation,
+                    "has_more": bool(next_continuation)
+                }
             return results
     except Exception as e:
         logger.warning("YouTube Innertube search failed: %s. Attempting yt-dlp fallback...", e)
@@ -187,14 +257,18 @@ def search_youtube(query: str, max_results: int = 15, ytdlp_cmd: Optional[List[s
                     except Exception:
                         pass
                 if results:
+                    if return_dict:
+                        return {"items": results, "continuation": None, "has_more": False}
                     return results
         except Exception as e:
             logger.error("yt-dlp fallback search error: %s", e)
 
+    if return_dict:
+        return {"items": [], "continuation": None, "has_more": False}
     return []
 
 
-def search_playlists(query: str, max_results: int = 15) -> List[Dict[str, Any]]:
+def search_playlists(query: str, max_results: int = 15, append_karaoke: bool = True) -> List[Dict[str, Any]]:
     """
     Searches YouTube specifically for complete playlists matching the query.
     Uses YouTube search with playlist filter (sp=EgIQAw%3D%3D) via pure Python standard library.
@@ -204,7 +278,7 @@ def search_playlists(query: str, max_results: int = 15) -> List[Dict[str, Any]]:
     if not clean_query:
         return []
 
-    if "playlist" not in clean_query.lower() and "karaoke" not in clean_query.lower():
+    if append_karaoke and "playlist" not in clean_query.lower() and "karaoke" not in clean_query.lower():
         search_query = f"{clean_query} karaoke"
     else:
         search_query = clean_query

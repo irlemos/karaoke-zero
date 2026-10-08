@@ -327,14 +327,15 @@ class SongDownloadManager:
             logger.error("yt-dlp binary not found on system.")
             return
 
-        # Format selector: prioritize H.264 for hardware GPU decode on Raspberry Pi, best audio
-        format_spec = f"bestvideo[vcodec^=avc1][height<={quality}]+bestaudio[ext!=webm]/best[height<={quality}]/best"
+        # Format selector: prioritize H.264 for hardware GPU decode on Raspberry Pi, best audio available
+        format_spec = f"bestvideo[vcodec^=avc1][height<={quality}]+bestaudio/bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best"
         output_template = os.path.join(songs_dir, "%(title)s [%(id)s].%(ext)s")
 
         cmd = ytdlp_cmd + [
             "--no-playlist",
             "-f", format_spec,
-            "-S", "vcodec:h264,res,acodec:m4a",
+            "-S", f"res:{quality},abr,vcodec:h264",
+            "--audio-quality", "0",
             "--merge-output-format", "mp4",
             "--compat-options", "filename-sanitization",
             "--no-mtime",

@@ -332,6 +332,86 @@ class TestSearchYouTube(unittest.TestCase):
         self.assertEqual(results[0]["duration_sec"], 355)
 
     @patch("urllib.request.urlopen")
+    def test_search_youtube_pagination_and_return_dict(self, mock_urlopen):
+        mock_data = {
+            "contents": {
+                "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [
+                                {
+                                    "itemSectionRenderer": {
+                                        "contents": [
+                                            {
+                                                "videoRenderer": {
+                                                    "videoId": "page1_vid",
+                                                    "title": {"runs": [{"text": "Page 1 Track"}]},
+                                                    "ownerText": {"runs": [{"text": "Artist"}]},
+                                                    "lengthText": {"simpleText": "3:30"},
+                                                    "thumbnail": {"thumbnails": [{"url": "https://img.com/p1.jpg"}]}
+                                                }
+                                            },
+                                            {
+                                                "continuationItemRenderer": {
+                                                    "continuationEndpoint": {
+                                                        "continuationCommand": {
+                                                            "token": "TOKEN_PAGE_2"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+        mock_json = json.dumps(mock_data).encode("utf-8")
+        mock_response = MagicMock()
+        mock_response.read.return_value = mock_json
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        res = search_youtube("Rock", max_results=24, return_dict=True)
+        self.assertIsInstance(res, dict)
+        self.assertEqual(len(res["items"]), 1)
+        self.assertEqual(res["items"][0]["id"], "page1_vid")
+        self.assertEqual(res["continuation"], "TOKEN_PAGE_2")
+        self.assertTrue(res["has_more"])
+
+    @patch("urllib.request.urlopen")
+    def test_search_youtube_append_karaoke_toggle(self, mock_urlopen):
+        mock_data = {
+            "contents": {
+                "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                        "sectionListRenderer": {
+                            "contents": []
+                        }
+                    }
+                }
+            }
+        }
+        mock_json = json.dumps(mock_data).encode("utf-8")
+        mock_response = MagicMock()
+        mock_response.read.return_value = mock_json
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        # When append_karaoke=False, "karaoke" should not be forced into query
+        search_youtube("Lady Gaga Poker Face", append_karaoke=False, return_dict=True)
+        req_arg = mock_urlopen.call_args[0][0]
+        payload = json.loads(req_arg.data.decode("utf-8"))
+        self.assertEqual(payload["query"], "Lady Gaga Poker Face")
+
+        # When append_karaoke=True, "karaoke" should be appended
+        search_youtube("Lady Gaga Poker Face", append_karaoke=True, return_dict=True)
+        req_arg2 = mock_urlopen.call_args[0][0]
+        payload2 = json.loads(req_arg2.data.decode("utf-8"))
+        self.assertEqual(payload2["query"], "Lady Gaga Poker Face karaoke")
+
+    @patch("urllib.request.urlopen")
     def test_search_playlists_mocked(self, mock_urlopen):
         mock_data = {
             "contents": {
@@ -756,7 +836,9 @@ class TestAntiBanResilience(unittest.TestCase):
         self.assertIn("--sleep-requests", cmd_args)
         self.assertIn("1.5", cmd_args)
         self.assertIn("-S", cmd_args)
-        self.assertIn("res:1080,vcodec:h264,acodec:m4a", cmd_args)
+        self.assertIn("res:1080,abr,vcodec:h264", cmd_args)
+        self.assertIn("--audio-quality", cmd_args)
+        self.assertIn("0", cmd_args)
 
         # Verify broken SABR-forcing android player client is NOT forced
         self.assertNotIn("youtube:player_client=android,web", cmd_args)
